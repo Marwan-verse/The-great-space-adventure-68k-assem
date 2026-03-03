@@ -1,0 +1,2238 @@
+00001000 Starting Address
+Assembler used: EASy68K Editor/Assembler v5.16.01
+Created On: 03/03/2026 20:06:02
+
+00000000                             1  *-----------------------------------------------------------
+00000000                             2  * Title        : The Great Space Adventure
+00000000                             3  * starter kit  : Philip Bourke
+00000000                             4  * programed by : Marwan Fayad
+00000000                             5  * Date         : 27/02/2026
+00000000                             6  * Description  : Space Invaders with Time Stop ability, waves,
+00000000                             7  *                background stars, and sound effects
+00000000                             8  *
+00000000                             9  *
+00000000                            10  *       to do list
+00000000                            11  * music not playing
+00000000                            12  *figure out why screen is shifted to the left
+00000000                            13  *figure out how to add bmp sprites into game
+00000000                            14  *maybe add boss at wave 5
+00000000                            15  *make trailer
+00000000                            16  *
+00000000                            17  *
+00000000                            18  *
+00000000                            19  *
+00000000                            20  
+00000000                            21  *-----------------------------------------------------------
+00001000                            22      ORG    $1000
+00001000                            23  START:                  ; first instruction of program
+00001000  6000 0002                 24      BRA     START_SCREEN            ; Show title screen first
+00001004                            25  
+00001004                            26  *-----------------------------------------------------------
+00001004                            27  * Section       : Trap Codes
+00001004                            28  * Description   : Trap Codes used throughout Game
+00001004                            29  *-----------------------------------------------------------
+00001004                            30  * Trap CODES
+00001004  =00000021                 31  TC_SCREEN   EQU         33          ; Screen size information trap code
+00001004  =00000000                 32  TC_S_SIZE   EQU         00          ; Places 0 in D1.L to retrieve Screen width and height in D1.L
+00001004  =00000013                 33  TC_KEYCODE  EQU         19          ; Check for pressed keys
+00001004  =0000005C                 34  TC_DBL_BUF  EQU         92          ; Double Buffer Screen Trap Code
+00001004  =0000000B                 35  TC_CURSR_P  EQU         11          ; Trap code cursor position
+00001004  =00000009                 36  TC_EXIT     EQU         09          ; Exit Trapcode
+00001004                            37  
+00001004                            38  *-----------------------------------------------------------
+00001004                            39  * Section       : Game loop
+00001004                            40  * Description   : Size of Player Ship, Bullet, and Aliens
+00001004                            41  *-----------------------------------------------------------
+00001004  =00000014                 42  SHIP_W      EQU         20          ; Ship Width
+00001004  =0000000A                 43  SHIP_H      EQU         10          ; Ship Height
+00001004  =00000001                 44  SHIP_SPEED  EQU         01          ; Ship Movement Speed
+00001004                            45  
+00001004  =00000003                 46  BULLET_W    EQU         3           ; Bullet Width
+00001004  =0000000A                 47  BULLET_H    EQU         10          ; Bullet Height
+00001004  =00000007                 48  BULLET_SPD  EQU         07          ; Bullet Speed (upward)
+00001004                            49  
+00001004  =00000028                 50  ALIEN_W     EQU         40          ; Alien Width
+00001004  =0000000A                 51  ALIEN_H     EQU         10          ; Alien Height
+00001004  =00000009                 52  ALIEN_COLS  EQU         09          ; Number of alien columns
+00001004  =00000002                 53  ALIEN_ROWS  EQU         02          ; Number of alien rows
+00001004  =00000001                 54  ALIEN_SPD   EQU         01          ; Alien base horizontal speed (slower)
+00001004  =00000028                 55  ALIEN_GAP   EQU         40          ; Gap between aliens
+00001004  =00000004                 56  ALIEN_MOVE_DELAY EQU    4           ; Only move aliens every N frames
+00001004                            57  
+00001004  =000001F4                 58  SLOW_DURATION EQU       500         ; Slow motion lasts 5 seconds (in hundredths)
+00001004  =000007D0                 59  SLOW_COOLDOWN EQU       2000        ; 20 second cooldown (in hundredths)
+00001004  =0000000A                 60  SLOW_FACTOR EQU         10          ; Aliens move 10x slower during slow-mo
+00001004                            61  
+00001004  =00000028                 62  NUM_STARS   EQU         40          ; Number of stars in background
+00001004                            63  
+00001004  =00000002                 64  ALN_BLT_W   EQU         02          ; Alien bullet width
+00001004  =00000006                 65  ALN_BLT_H   EQU         06          ; Alien bullet height
+00001004  =00000001                 66  ALN_BLT_SPD EQU         01          ; Alien bullet speed (downward)
+00001004  =00000019                 67  MAX_ALN_BLT EQU         25          ; Max alien bullets at once
+00001004                            68  
+00001004  =00000000                 69  SHOOT_INDEX EQU         00          ; Shoot Sound Index  
+00001004  =00000001                 70  HIT_INDEX   EQU         01          ; Hit Sound Index  
+00001004  =00000002                 71  OPPS_INDEX  EQU         02          ; Game Over Sound Index
+00001004  =00000003                 72  MUSIC_INDEX EQU         03          ; Music Sound Index
+00001004  =00000004                 73  TIMEFREEZE_INDEX EQU    04          ; Time Freeze Sound Index
+00001004                            74  
+00001004  =00000082                 75  BULLET_OFF  EQU         130         ; Bullet off-screen Y position
+00001004                            76  
+00001004  =00000244                 77  SCR_WIDTH   EQU         580         ; Screen width
+00001004  =00000334                 78  SCR_HEIGHT  EQU         820         ; Screen height
+00001004                            79  
+00001004                            80  *-----------------------------------------------------------
+00001004                            81  * Section       : Game Stats
+00001004                            82  * Description   : Points per alien
+00001004                            83  *-----------------------------------------------------------
+00001004  =0000000A                 84  POINTS      EQU         10          ; Points per alien hit
+00001004                            85  
+00001004                            86  *-----------------------------------------------------------
+00001004                            87  * Section       : Keyboard Keys
+00001004                            88  * Description   : Arrow keys, Spacebar and Escape
+00001004                            89  *-----------------------------------------------------------
+00001004  =00000025                 90  KEY_LEFT    EQU         $25         ; Left Arrow
+00001004  =00000027                 91  KEY_RIGHT   EQU         $27         ; Right Arrow
+00001004  =00000026                 92  KEY_UP      EQU         $26         ; Up Arrow (Slow Motion)
+00001004  =00000020                 93  SPACEBAR    EQU         $20         ; Spacebar ASCII Keycode (Shoot)
+00001004  =0000001B                 94  ESCAPE      EQU         $1B         ; Escape ASCII Keycode
+00001004                            95  
+00001004                            96  *-----------------------------------------------------------
+00001004                            97  * Subroutine    : Start Screen
+00001004                            98  * Description   : Display title screen and wait for key press
+00001004                            99  *-----------------------------------------------------------
+00001004                           100  START_SCREEN:
+00001004                           101      ; Set Graphics Window Size
+00001004  223C 02080334            102      MOVE.L  #$02080334, D1          ; $0208 = 520, $0334 = 820
+0000100A  103C 0021                103      MOVE.B  #33,        D0
+0000100E  4E4F                     104      TRAP    #15
+00001010                           105      
+00001010                           106      ; Enable double buffer
+00001010  103C 005C                107      MOVE.B  #TC_DBL_BUF,D0
+00001014  123C 0011                108      MOVE.B  #17,        D1
+00001018  4E4F                     109      TRAP    #15
+0000101A                           110      
+0000101A                           111      ; Clear screen
+0000101A  103C 000B                112      MOVE.B  #TC_CURSR_P,D0
+0000101E  323C FF00                113      MOVE.W  #$FF00,     D1
+00001022  4E4F                     114      TRAP    #15
+00001024                           115      
+00001024                           116      ; Load and play music for title screen (after screen init)
+00001024  6100 0C14                117      BSR     MUSIC_LOAD
+00001028  6100 0C22                118      BSR     PLAY_MUSIC
+0000102C                           119      
+0000102C                           120  DRAW_TITLE_SCREEN:
+0000102C                           121      ; Repaint
+0000102C  103C 005E                122      MOVE.B  #94,        D0
+00001030  4E4F                     123      TRAP    #15
+00001032                           124      
+00001032                           125      ; Clear screen
+00001032  103C 000B                126      MOVE.B  #TC_CURSR_P,D0
+00001036  323C FF00                127      MOVE.W  #$FF00,     D1
+0000103A  4E4F                     128      TRAP    #15
+0000103C                           129      
+0000103C                           130      ; Draw ASCII Art Title - Line 1
+0000103C  103C 000B                131      MOVE.B  #TC_CURSR_P,D0
+00001040  323C 0206                132      MOVE.W  #$0206,     D1          ; Col 2, Row 6
+00001044  4E4F                     133      TRAP    #15
+00001046  43F9 000020B8            134      LEA     TITLE_1,    A1
+0000104C  303C 000E                135      MOVE    #14,        D0
+00001050  4E4F                     136      TRAP    #15
+00001052                           137      
+00001052                           138      ; Line 2
+00001052  103C 000B                139      MOVE.B  #TC_CURSR_P,D0
+00001056  323C 0207                140      MOVE.W  #$0207,     D1          ; Col 2, Row 7
+0000105A  4E4F                     141      TRAP    #15
+0000105C  43F9 000020F5            142      LEA     TITLE_2,    A1
+00001062  303C 000E                143      MOVE    #14,        D0
+00001066  4E4F                     144      TRAP    #15
+00001068                           145      
+00001068                           146      ; Line 3
+00001068  103C 000B                147      MOVE.B  #TC_CURSR_P,D0
+0000106C  323C 0208                148      MOVE.W  #$0208,     D1          ; Col 2, Row 8
+00001070  4E4F                     149      TRAP    #15
+00001072  43F9 00002132            150      LEA     TITLE_3,    A1
+00001078  303C 000E                151      MOVE    #14,        D0
+0000107C  4E4F                     152      TRAP    #15
+0000107E                           153      
+0000107E                           154      ; Line 4
+0000107E  103C 000B                155      MOVE.B  #TC_CURSR_P,D0
+00001082  323C 0209                156      MOVE.W  #$0209,     D1          ; Col 2, Row 9
+00001086  4E4F                     157      TRAP    #15
+00001088  43F9 0000216F            158      LEA     TITLE_4,    A1
+0000108E  303C 000E                159      MOVE    #14,        D0
+00001092  4E4F                     160      TRAP    #15
+00001094                           161      
+00001094                           162      ; Line 5
+00001094  103C 000B                163      MOVE.B  #TC_CURSR_P,D0
+00001098  323C 020A                164      MOVE.W  #$020A,     D1          ; Col 2, Row 10
+0000109C  4E4F                     165      TRAP    #15
+0000109E  43F9 000021AC            166      LEA     TITLE_5,    A1
+000010A4  303C 000E                167      MOVE    #14,        D0
+000010A8  4E4F                     168      TRAP    #15
+000010AA                           169      
+000010AA                           170      ; Line 6
+000010AA  103C 000B                171      MOVE.B  #TC_CURSR_P,D0
+000010AE  323C 020B                172      MOVE.W  #$020B,     D1          ; Col 2, Row 11
+000010B2  4E4F                     173      TRAP    #15
+000010B4  43F9 000021E9            174      LEA     TITLE_6,    A1
+000010BA  303C 000E                175      MOVE    #14,        D0
+000010BE  4E4F                     176      TRAP    #15
+000010C0                           177  
+000010C0                           178      ; Space Adventure subtitle
+000010C0  103C 000B                179      MOVE.B  #TC_CURSR_P,D0
+000010C4  323C 0614                180      MOVE.W  #$0614,     D1          ; Col 6, Row 20
+000010C8  4E4F                     181      TRAP    #15
+000010CA  43F9 00002226            182      LEA     SHIP_ART3,  A1
+000010D0  303C 000E                183      MOVE    #14,        D0
+000010D4  4E4F                     184      TRAP    #15
+000010D6                           185      
+000010D6                           186  
+000010D6                           187      ; Draw controls info
+000010D6  103C 000B                188      MOVE.B  #TC_CURSR_P,D0
+000010DA  323C 061C                189      MOVE.W  #$061C,     D1          ; Col 6, Row 28
+000010DE  4E4F                     190      TRAP    #15
+000010E0  43F9 000022A0            191      LEA     CONTROLS1,  A1
+000010E6  303C 000E                192      MOVE    #14,        D0
+000010EA  4E4F                     193      TRAP    #15
+000010EC                           194      
+000010EC  103C 000B                195      MOVE.B  #TC_CURSR_P,D0
+000010F0  323C 061D                196      MOVE.W  #$061D,     D1          ; Col 6, Row 29
+000010F4  4E4F                     197      TRAP    #15
+000010F6  43F9 000022DD            198      LEA     CONTROLS2,  A1
+000010FC  303C 000E                199      MOVE    #14,        D0
+00001100  4E4F                     200      TRAP    #15
+00001102                           201      
+00001102  103C 000B                202      MOVE.B  #TC_CURSR_P,D0
+00001106  323C 061E                203      MOVE.W  #$061E,     D1          ; Col 6, Row 30
+0000110A  4E4F                     204      TRAP    #15
+0000110C  43F9 0000231A            205      LEA     CONTROLS3,  A1
+00001112  303C 000E                206      MOVE    #14,        D0
+00001116  4E4F                     207      TRAP    #15
+00001118                           208      
+00001118                           209  WAIT_FOR_KEY:
+00001118                           210      ; Check if any key is pressed using key state check
+00001118  103C 0013                211      MOVE.B  #TC_KEYCODE,D0          ; Check key state (trap 19)
+0000111C  7220                     212      MOVE.L  #SPACEBAR,  D1          ; Check spacebar
+0000111E  4E4F                     213      TRAP    #15
+00001120  0801 0000                214      BTST    #0,         D1          ; Key pressed?
+00001124  6600 001E                215      BNE     INITIALISE              ; Yes - start game!
+00001128                           216      
+00001128                           217      ; Also check Enter key
+00001128  103C 0013                218      MOVE.B  #TC_KEYCODE,D0
+0000112C  720D                     219      MOVE.L  #$0D,       D1          ; Enter key
+0000112E  4E4F                     220      TRAP    #15
+00001130  0801 0000                221      BTST    #0,         D1
+00001134  6600 000E                222      BNE     INITIALISE
+00001138                           223      
+00001138                           224      ; Small delay to prevent CPU spinning
+00001138  7201                     225      MOVE.L  #1,         D1
+0000113A  103C 0017                226      MOVE.B  #23,        D0          ; Delay
+0000113E  4E4F                     227      TRAP    #15
+00001140                           228      
+00001140  6000 FEEA                229      BRA     DRAW_TITLE_SCREEN       ; Keep displaying
+00001144                           230  
+00001144                           231  *-----------------------------------------------------------
+00001144                           232  * Subroutine    : Initialise
+00001144                           233  * Description   : Initialise game data into memory
+00001144                           234  *-----------------------------------------------------------
+00001144                           235  INITIALISE:
+00001144                           236      ; Stop the title screen music
+00001144  6100 0B14                237      BSR     STOP_MUSIC
+00001148                           238      
+00001148                           239      ; Set Graphics Window Size to 520x820
+00001148                           240      ; Trap 33: D1 high word = width, D1 low word = height
+00001148  223C 01600334            241      MOVE.L  #$01600334, D1          ; $0208 = 520, $0334 = 820
+0000114E  103C 0021                242      MOVE.B  #33,        D0
+00001152  4E4F                     243      TRAP    #15
+00001154                           244      
+00001154                           245      ; Initialise Sounds
+00001154  6100 0A72                246      BSR     SHOOT_LOAD              ; Load Shoot Sound into Memory
+00001158  6100 0A94                247      BSR     HIT_LOAD                ; Load Hit Sound into Memory
+0000115C  6100 0AB6                248      BSR     OPPS_LOAD               ; Load Game Over Sound into Memory
+00001160  6100 0B06                249      BSR     TIMEFREEZE_LOAD         ; Load Time Freeze Sound into Memory
+00001164                           250      
+00001164                           251      ; Initialize time stop message timer
+00001164  23FC 00000000 000027DA   252      MOVE.L  #0,         TIMESTOP_MSG_TIME
+0000116E                           253  
+0000116E                           254      ; Store Screen Size
+0000116E  33FC 0244 00002402       255      MOVE.W  #SCR_WIDTH, SCREEN_W    ; Store screen width
+00001176  33FC 0334 00002404       256      MOVE.W  #SCR_HEIGHT,SCREEN_H    ; Store screen height
+0000117E                           257  
+0000117E                           258      ; Place the Player Ship at the bottom center of the screen
+0000117E  4281                     259      CLR.L   D1                      ; Clear contents of D1
+00001180  3239 00002402            260      MOVE.W  SCREEN_W,   D1          ; Place Screen width in D1
+00001186  82FC 0002                261      DIVU    #02,        D1          ; divide by 2 for center on X Axis
+0000118A  0481 0000000A            262      SUB.L   #SHIP_W/2,  D1          ; Center the ship
+00001190  23C1 00002406            263      MOVE.L  D1,         SHIP_X      ; Ship X Position
+00001196                           264  
+00001196  4281                     265      CLR.L   D1                      ; Clear contents of D1
+00001198  3239 00002404            266      MOVE.W  SCREEN_H,   D1          ; Place Screen height in D1
+0000119E  0481 0000001E            267      SUB.L   #30,        D1          ; Place ship near bottom
+000011A4  23C1 0000240A            268      MOVE.L  D1,         SHIP_Y      ; Ship Y Position
+000011AA                           269  
+000011AA                           270      ; Initialise Bullet (off screen)
+000011AA  23FC 00000082 00002416   271      MOVE.L  #BULLET_OFF,BULLET_Y    ; Bullet starts off screen
+000011B4  23FC 00000000 00002412   272      MOVE.L  #0,         BULLET_X    ; Bullet X position
+000011BE                           273  
+000011BE                           274      ; Initialize Bullet Active Flag
+000011BE  23FC 00000000 0000241A   275      MOVE.L  #0,         BULLET_ACT  ; Bullet not active
+000011C8                           276  
+000011C8                           277      ; Initialise Player Score
+000011C8  23FC 00000000 0000240E   278      MOVE.L  #0,         PLAYER_SCORE
+000011D2                           279  
+000011D2                           280      ; Initialise Alien Direction (1 = right, -1 = left)
+000011D2  23FC 00000001 00002426   281      MOVE.L  #1,         ALIEN_DIR   ; Start moving right
+000011DC                           282  
+000011DC                           283      ; Initialize Aliens
+000011DC  6100 007C                284      BSR     INIT_ALIENS             ; Set up alien grid
+000011E0                           285  
+000011E0                           286      ; Initialize Game Over flag
+000011E0  23FC 00000000 00002472   287      MOVE.L  #0,         GAME_OVER   ; Game is not over
+000011EA                           288  
+000011EA                           289      ; Initialize alien bullets
+000011EA  6100 0C06                290      BSR     INIT_ALIEN_BULLETS
+000011EE                           291      
+000011EE                           292      ; Initialize random seed
+000011EE  103C 0008                293      MOVE.B  #8,         D0          ; Get time
+000011F2  4E4F                     294      TRAP    #15
+000011F4  23C1 000025A6            295      MOVE.L  D1,         RANDOM_SEED ; Use time as random seed
+000011FA                           296      
+000011FA                           297      ; Initialize slow motion variables
+000011FA  23FC 00000000 000025AA   298      MOVE.L  #0,         SLOW_ACTIVE ; Slow motion not active
+00001204  23FC 00000000 000025AE   299      MOVE.L  #0,         SLOW_END_TIME ; No end time
+0000120E  23FC 00000000 000025B2   300      MOVE.L  #0,         SLOW_READY_TIME ; Can use immediately
+00001218                           301      
+00001218                           302      ; Initialize wave system
+00001218  23FC 00000001 000025BA   303      MOVE.L  #1,         WAVE_NUM    ; Start at wave 1
+00001222  23FC 00000001 000025BE   304      MOVE.L  #ALIEN_SPD, CURRENT_ALIEN_SPD ; Current alien speed
+0000122C  23FC 00000000 000025C2   305      MOVE.L  #0,         ALIEN_MOVE_CNT ; Alien move frame counter
+00001236                           306      
+00001236                           307      ; Initialize stars
+00001236  6100 0876                308      BSR     INIT_STARS
+0000123A                           309  
+0000123A                           310      ; Enable the screen back buffer
+0000123A  103C 005C                311      MOVE.B  #TC_DBL_BUF,D0          ; 92 Enables Double Buffer
+0000123E  123C 0011                312      MOVE.B  #17,        D1          ; Combine Tasks
+00001242  4E4F                     313      TRAP    #15                     ; Trap (Perform action)
+00001244                           314  
+00001244                           315      ; Clear the screen
+00001244  103C 000B                316      MOVE.B  #TC_CURSR_P,D0          ; Set Cursor Position
+00001248  323C FF00                317      MOVE.W  #$FF00,     D1          ; Fill Screen Clear
+0000124C  4E4F                     318      TRAP    #15                     ; Trap (Perform action)
+0000124E                           319      
+0000124E                           320      ; Start game music (loops)
+0000124E  6100 09EA                321      BSR     MUSIC_LOAD              ; Load music for game
+00001252  6100 09F8                322      BSR     PLAY_MUSIC              ; Play music in loop
+00001256                           323      
+00001256  6000 0028                324      BRA     GAMELOOP                ; Start the game loop
+0000125A                           325  
+0000125A                           326  *-----------------------------------------------------------
+0000125A                           327  * Subroutine    : Init Aliens
+0000125A                           328  * Description   : Initialize alien positions (1 = alive, 0 = dead)
+0000125A                           329  *-----------------------------------------------------------
+0000125A                           330  INIT_ALIENS:
+0000125A  41F9 0000242A            331      LEA     ALIENS,     A0          ; Load aliens array address
+00001260  7E11                     332      MOVE.L  #(ALIEN_ROWS*ALIEN_COLS)-1, D7  ; Loop counter
+00001262  7201                     333      MOVE.L  #1,         D1          ; 1 = alive
+00001264                           334  INIT_ALIEN_LOOP:
+00001264  20C1                     335      MOVE.L  D1,         (A0)+       ; Set alien as alive
+00001266  51CF FFFC                336      DBRA    D7,         INIT_ALIEN_LOOP
+0000126A                           337      
+0000126A                           338      ; Set starting position for alien formation
+0000126A  23FC 00000064 0000241E   339      MOVE.L  #100,       ALIENS_X    ; Start X position of formation (centered)
+00001274  23FC 00000028 00002422   340      MOVE.L  #40,        ALIENS_Y    ; Start Y position of formation
+0000127E  4E75                     341      RTS
+00001280                           342  
+00001280                           343  *-----------------------------------------------------------
+00001280                           344  * Subroutine    : Game Loop
+00001280                           345  * Description   : Main game loop
+00001280                           346  *-----------------------------------------------------------
+00001280                           347  GAMELOOP:
+00001280                           348      ; Check if game is over
+00001280  2239 00002472            349      MOVE.L  GAME_OVER,  D1
+00001286  B2BC 00000001            350      CMP.L   #1,         D1
+0000128C  6700 0030                351      BEQ     SHOW_GAME_OVER
+00001290                           352  
+00001290                           353      ; Update slow motion timer
+00001290  6100 0DC0                354      BSR     UPDATE_SLOW_MOTION
+00001294                           355  
+00001294                           356      ; Main Gameloop
+00001294  6100 0032                357      BSR     INPUT                   ; Check Keyboard Input
+00001298  6100 0170                358      BSR     UPDATE_BULLET           ; Update bullet position
+0000129C  6100 01AE                359      BSR     UPDATE_ALIENS           ; Move aliens
+000012A0  6100 09EC                360      BSR     CHECK_BULLET_COLLISIONS ; Check bullet hitting aliens
+000012A4  6100 0C4C                361      BSR     UPDATE_ALIEN_BULLETS    ; Update alien bullets
+000012A8  6100 0B5C                362      BSR     ALIEN_SHOOT_RANDOM      ; Random alien shooting
+000012AC  6100 0CC6                363      BSR     CHECK_ALIEN_BULLET_HIT  ; Check if player is hit
+000012B0  6100 0ABA                364      BSR     CHECK_ALIEN_REACHED     ; Check if aliens reached bottom
+000012B4  6100 0AE0                365      BSR     CHECK_NEXT_WAVE         ; Check if all aliens dead -> spawn next wave
+000012B8  6100 02AC                366      BSR     DRAW                    ; Draw the Scene
+000012BC  60C2                     367      BRA     GAMELOOP                ; Loop back to GameLoop
+000012BE                           368  
+000012BE                           369  *-----------------------------------------------------------
+000012BE                           370  * Subroutine    : Show Game Over
+000012BE                           371  * Description   : Display game over screen
+000012BE                           372  *-----------------------------------------------------------
+000012BE                           373  SHOW_GAME_OVER:
+000012BE  6100 02A6                374      BSR     DRAW                    ; Draw final state
+000012C2  6100 0004                375      BSR     INPUT                   ; Still check for escape
+000012C6  60F6                     376      BRA     SHOW_GAME_OVER
+000012C8                           377  
+000012C8                           378  *-----------------------------------------------------------
+000012C8                           379  * Subroutine    : Input
+000012C8                           380  * Description   : Process Keyboard Input
+000012C8                           381  *-----------------------------------------------------------
+000012C8                           382  INPUT:
+000012C8                           383      ; Check for escape - restart if game over, exit if playing
+000012C8  103C 0013                384      MOVE.B  #TC_KEYCODE,D0
+000012CC  721B                     385      MOVE.L  #ESCAPE,    D1
+000012CE  4E4F                     386      TRAP    #15
+000012D0  0801 0000                387      BTST    #0,         D1
+000012D4  6700 0016                388      BEQ     .NO_ESC
+000012D8                           389      
+000012D8                           390      ; Check if game is over
+000012D8  2239 00002472            391      MOVE.L  GAME_OVER,  D1
+000012DE  B2BC 00000000            392      CMP.L   #0,         D1
+000012E4  6700 0DB2                393      BEQ     EXIT                    ; Playing - exit game
+000012E8  6000 FE5A                394      BRA     INITIALISE              ; Game over - restart
+000012EC                           395      
+000012EC                           396  .NO_ESC:
+000012EC                           397      
+000012EC                           398      ; Check for up arrow (slow motion)
+000012EC  103C 0013                399      MOVE.B  #TC_KEYCODE,D0
+000012F0  7226                     400      MOVE.L  #KEY_UP,    D1
+000012F2  4E4F                     401      TRAP    #15
+000012F4  0801 0000                402      BTST    #0,         D1
+000012F8  6600 0034                403      BNE     ACTIVATE_SLOW
+000012FC                           404      
+000012FC                           405      ; Check for left arrow (held)
+000012FC  103C 0013                406      MOVE.B  #TC_KEYCODE,D0
+00001300  7225                     407      MOVE.L  #KEY_LEFT,  D1
+00001302  4E4F                     408      TRAP    #15
+00001304  0801 0000                409      BTST    #0,         D1
+00001308  6600 007E                410      BNE     MOVE_LEFT
+0000130C                           411      
+0000130C                           412      ; Check for right arrow (held)
+0000130C  103C 0013                413      MOVE.B  #TC_KEYCODE,D0
+00001310  7227                     414      MOVE.L  #KEY_RIGHT, D1
+00001312  4E4F                     415      TRAP    #15
+00001314  0801 0000                416      BTST    #0,         D1
+00001318  6600 0088                417      BNE     MOVE_RIGHT
+0000131C                           418      
+0000131C                           419      ; Check for spacebar (shoot)
+0000131C  103C 0013                420      MOVE.B  #TC_KEYCODE,D0
+00001320  7220                     421      MOVE.L  #SPACEBAR,  D1
+00001322  4E4F                     422      TRAP    #15
+00001324  0801 0000                423      BTST    #0,         D1
+00001328  6600 009A                424      BNE     SHOOT
+0000132C                           425      
+0000132C  4E75                     426      RTS                             ; Return to subroutine
+0000132E                           427  
+0000132E                           428  *-----------------------------------------------------------
+0000132E                           429  * Subroutine    : Activate Slow Motion
+0000132E                           430  * Description   : Activate slow motion if cooldown is ready
+0000132E                           431  *-----------------------------------------------------------
+0000132E                           432  ACTIVATE_SLOW:
+0000132E                           433      ; Check if already active
+0000132E  2239 000025AA            434      MOVE.L  SLOW_ACTIVE,D1
+00001334  B2BC 00000001            435      CMP.L   #1,         D1
+0000133A  6700 004A                436      BEQ     ACTIVATE_SLOW_DONE      ; Already active
+0000133E                           437      
+0000133E                           438      ; Check if cooldown has passed
+0000133E  103C 0008                439      MOVE.B  #8,         D0          ; Get current time
+00001342  4E4F                     440      TRAP    #15
+00001344  2401                     441      MOVE.L  D1,         D2          ; Current time in D2
+00001346  2639 000025B2            442      MOVE.L  SLOW_READY_TIME,D3
+0000134C  B483                     443      CMP.L   D3,         D2          ; Current time >= ready time?
+0000134E  6D00 0036                444      BLT     ACTIVATE_SLOW_DONE      ; Not ready yet
+00001352                           445      
+00001352                           446      ; Activate slow motion!
+00001352  23FC 00000001 000025AA   447      MOVE.L  #1,         SLOW_ACTIVE
+0000135C                           448      
+0000135C                           449      ; Play time freeze sound
+0000135C  6100 091C                450      BSR     PLAY_TIMEFREEZE
+00001360                           451      
+00001360                           452      ; Set message display timer (show for 2 seconds = 200 hundredths)
+00001360  103C 0008                453      MOVE.B  #8,         D0
+00001364  4E4F                     454      TRAP    #15
+00001366  0681 000000C8            455      ADD.L   #200,       D1
+0000136C  23C1 000027DA            456      MOVE.L  D1,         TIMESTOP_MSG_TIME
+00001372                           457      
+00001372                           458      ; Set end time = current time + duration
+00001372  103C 0008                459      MOVE.B  #8,         D0
+00001376  4E4F                     460      TRAP    #15
+00001378  2401                     461      MOVE.L  D1,         D2          ; Current time in D2
+0000137A  0681 000001F4            462      ADD.L   #SLOW_DURATION,D1
+00001380  23C1 000025AE            463      MOVE.L  D1,         SLOW_END_TIME
+00001386                           464      
+00001386                           465  ACTIVATE_SLOW_DONE:
+00001386  4E75                     466      RTS
+00001388                           467  
+00001388                           468  *-----------------------------------------------------------
+00001388                           469  * Subroutine    : Move Left
+00001388                           470  * Description   : Move ship left
+00001388                           471  *-----------------------------------------------------------
+00001388                           472  MOVE_LEFT:
+00001388  2239 00002406            473      MOVE.L  SHIP_X,     D1
+0000138E  5381                     474      SUB.L   #SHIP_SPEED,D1
+00001390  B2BC 00000000            475      CMP.L   #0,         D1          ; Don't go past left edge
+00001396  6F00 0008                476      BLE     MOVE_LEFT_DONE
+0000139A  23C1 00002406            477      MOVE.L  D1,         SHIP_X
+000013A0                           478  MOVE_LEFT_DONE:
+000013A0  4E75                     479      RTS
+000013A2                           480  
+000013A2                           481  *-----------------------------------------------------------
+000013A2                           482  * Subroutine    : Move Right  
+000013A2                           483  * Description   : Move ship right
+000013A2                           484  *-----------------------------------------------------------
+000013A2                           485  MOVE_RIGHT:
+000013A2  2239 00002406            486      MOVE.L  SHIP_X,     D1
+000013A8  5281                     487      ADD.L   #SHIP_SPEED,D1
+000013AA  243C 00000244            488      MOVE.L  #SCR_WIDTH, D2
+000013B0  0482 00000014            489      SUB.L   #SHIP_W,    D2          ; Right edge (screen width - ship width)
+000013B6  B282                     490      CMP.L   D2,         D1
+000013B8  6C00 0008                491      BGE     MOVE_RIGHT_DONE
+000013BC  23C1 00002406            492      MOVE.L  D1,         SHIP_X
+000013C2                           493  MOVE_RIGHT_DONE:
+000013C2  4E75                     494      RTS
+000013C4                           495  
+000013C4                           496  *-----------------------------------------------------------
+000013C4                           497  * Subroutine    : Shoot
+000013C4                           498  * Description   : Fire bullet from ship
+000013C4                           499  *-----------------------------------------------------------
+000013C4                           500  SHOOT:
+000013C4                           501      ; Only shoot if bullet not active
+000013C4  2239 0000241A            502      MOVE.L  BULLET_ACT, D1
+000013CA  B2BC 00000001            503      CMP.L   #1,         D1
+000013D0  6700 0036                504      BEQ     SHOOT_DONE              ; Already active, skip
+000013D4                           505      
+000013D4                           506      ; Fire new bullet
+000013D4  6100 0804                507      BSR     PLAY_SHOOT              ; Play shoot sound
+000013D8  23FC 00000001 0000241A   508      MOVE.L  #1,         BULLET_ACT  ; Set bullet active
+000013E2                           509      
+000013E2                           510      ; Position bullet at center of ship
+000013E2  2239 00002406            511      MOVE.L  SHIP_X,     D1
+000013E8  0681 0000000A            512      ADD.L   #SHIP_W/2,  D1
+000013EE  5381                     513      SUB.L   #BULLET_W/2,D1
+000013F0  23C1 00002412            514      MOVE.L  D1,         BULLET_X
+000013F6                           515      
+000013F6  2239 0000240A            516      MOVE.L  SHIP_Y,     D1
+000013FC  0481 0000000A            517      SUB.L   #BULLET_H,  D1
+00001402  23C1 00002416            518      MOVE.L  D1,         BULLET_Y
+00001408                           519      
+00001408                           520  SHOOT_DONE:
+00001408  4E75                     521      RTS
+0000140A                           522  
+0000140A                           523  *-----------------------------------------------------------
+0000140A                           524  * Subroutine    : Update Bullet
+0000140A                           525  * Description   : Move bullet upward
+0000140A                           526  *-----------------------------------------------------------
+0000140A                           527  UPDATE_BULLET:
+0000140A                           528      ; Check if bullet is active
+0000140A  2239 0000241A            529      MOVE.L  BULLET_ACT, D1
+00001410  B2BC 00000000            530      CMP.L   #0,         D1
+00001416  6700 0032                531      BEQ     BULLET_UPDATE_DONE      ; Not active, skip
+0000141A                           532      
+0000141A                           533      ; Move bullet up
+0000141A  2239 00002416            534      MOVE.L  BULLET_Y,   D1
+00001420  5F81                     535      SUB.L   #BULLET_SPD,D1
+00001422  23C1 00002416            536      MOVE.L  D1,         BULLET_Y
+00001428                           537      
+00001428                           538      ; Check if bullet went off screen
+00001428  B2BC 00000000            539      CMP.L   #0,         D1
+0000142E  6F00 0006                540      BLE     DEACTIVATE_BULLET
+00001432  6000 0016                541      BRA     BULLET_UPDATE_DONE
+00001436                           542  
+00001436                           543  DEACTIVATE_BULLET:
+00001436  23FC 00000000 0000241A   544      MOVE.L  #0,         BULLET_ACT
+00001440  23FC 00000082 00002416   545      MOVE.L  #BULLET_OFF,BULLET_Y
+0000144A                           546      
+0000144A                           547  BULLET_UPDATE_DONE:
+0000144A  4E75                     548      RTS
+0000144C                           549  
+0000144C                           550  *-----------------------------------------------------------
+0000144C                           551  * Subroutine    : Update Aliens
+0000144C                           552  * Description   : Move aliens side to side and down
+0000144C                           553  *-----------------------------------------------------------
+0000144C                           554  UPDATE_ALIENS:
+0000144C                           555      ; Check if slow motion is active
+0000144C  2039 000025AA            556      MOVE.L  SLOW_ACTIVE,D0
+00001452  B0BC 00000001            557      CMP.L   #1,         D0
+00001458  6700 0044                558      BEQ     SLOW_ALIEN_MOVE
+0000145C                           559      
+0000145C                           560      ; Normal speed - add frame delay for slower movement
+0000145C  2039 000025C2            561      MOVE.L  ALIEN_MOVE_CNT,D0
+00001462  5280                     562      ADD.L   #1,         D0
+00001464  B0BC 00000004            563      CMP.L   #ALIEN_MOVE_DELAY,D0
+0000146A  6D00 002A                564      BLT     SKIP_NORMAL_MOVE
+0000146E  4280                     565      CLR.L   D0                      ; Reset counter
+00001470                           566      
+00001470                           567      ; Move aliens
+00001470  2239 0000241E            568      MOVE.L  ALIENS_X,   D1
+00001476  2439 00002426            569      MOVE.L  ALIEN_DIR,  D2
+0000147C  2639 000025BE            570      MOVE.L  CURRENT_ALIEN_SPD,D3
+00001482  C5C3                     571      MULS    D3,         D2
+00001484  D282                     572      ADD.L   D2,         D1
+00001486  23C1 0000241E            573      MOVE.L  D1,         ALIENS_X
+0000148C  23C0 000025C2            574      MOVE.L  D0,         ALIEN_MOVE_CNT
+00001492  6000 004C                575      BRA     CHECK_ALIEN_BOUNDS
+00001496                           576      
+00001496                           577  SKIP_NORMAL_MOVE:
+00001496  23C0 000025C2            578      MOVE.L  D0,         ALIEN_MOVE_CNT
+0000149C  4E75                     579      RTS
+0000149E                           580      
+0000149E                           581  SLOW_ALIEN_MOVE:
+0000149E                           582      ; Slow motion - only move every 4th frame
+0000149E  2639 000025B6            583      MOVE.L  SLOW_FRAME, D3
+000014A4  5283                     584      ADD.L   #1,         D3
+000014A6  B6BC 0000000A            585      CMP.L   #SLOW_FACTOR,D3
+000014AC  6D00 002A                586      BLT     SKIP_ALIEN_MOVE
+000014B0  4283                     587      CLR.L   D3                      ; Reset frame counter
+000014B2                           588      
+000014B2                           589      ; Move aliens at reduced rate
+000014B2  2239 0000241E            590      MOVE.L  ALIENS_X,   D1
+000014B8  2439 00002426            591      MOVE.L  ALIEN_DIR,  D2
+000014BE  2839 000025BE            592      MOVE.L  CURRENT_ALIEN_SPD,D4
+000014C4  C5C4                     593      MULS    D4,         D2
+000014C6  D282                     594      ADD.L   D2,         D1
+000014C8  23C1 0000241E            595      MOVE.L  D1,         ALIENS_X
+000014CE  23C3 000025B6            596      MOVE.L  D3,         SLOW_FRAME
+000014D4  6000 000A                597      BRA     CHECK_ALIEN_BOUNDS
+000014D8                           598      
+000014D8                           599  SKIP_ALIEN_MOVE:
+000014D8  23C3 000025B6            600      MOVE.L  D3,         SLOW_FRAME
+000014DE  4E75                     601      RTS
+000014E0                           602      
+000014E0                           603  CHECK_ALIEN_BOUNDS:
+000014E0  2239 0000241E            604      MOVE.L  ALIENS_X,   D1
+000014E6                           605      
+000014E6                           606      ; Calculate rightmost alien X position
+000014E6                           607      ; Rightmost alien = ALIENS_X + (ALIEN_COLS-1) * ALIEN_GAP + ALIEN_W
+000014E6  2601                     608      MOVE.L  D1,         D3          ; ALIENS_X
+000014E8  0683 00000140            609      ADD.L   #((ALIEN_COLS-1)*ALIEN_GAP),D3
+000014EE  0683 00000028            610      ADD.L   #ALIEN_W,   D3          ; Right edge of rightmost alien
+000014F4                           611      
+000014F4                           612      ; Check right boundary (screen width - margin)
+000014F4  243C 00000244            613      MOVE.L  #SCR_WIDTH, D2
+000014FA  0482 00000000            614      SUB.L   #0,         D2          ; 5 pixel margin from edge
+00001500  B682                     615      CMP.L   D2,         D3
+00001502  6C00 0010                616      BGE     ALIENS_MOVE_DOWN_LEFT
+00001506                           617      
+00001506                           618      ; Check left boundary (leftmost alien at ALIENS_X)
+00001506  B2BC 00000000            619      CMP.L   #0,         D1          ; 5 pixel margin from edge
+0000150C  6F00 0038                620      BLE     ALIENS_MOVE_DOWN_RIGHT
+00001510                           621      
+00001510  6000 0052                622      BRA     ALIENS_UPDATE_DONE
+00001514                           623      
+00001514                           624  ALIENS_MOVE_DOWN_LEFT:
+00001514  23FC FFFFFFFF 00002426   625      MOVE.L  #-1,        ALIEN_DIR   ; Change direction to left
+0000151E  06B9 0000000F 00002422   626      ADD.L   #15,        ALIENS_Y    ; Move down
+00001528                           627      ; Push aliens back inside boundary
+00001528  223C 00000244            628      MOVE.L  #SCR_WIDTH, D1
+0000152E  5B81                     629      SUB.L   #5,         D1
+00001530  0481 00000028            630      SUB.L   #ALIEN_W,   D1
+00001536  0481 00000140            631      SUB.L   #((ALIEN_COLS-1)*ALIEN_GAP),D1
+0000153C  23C1 0000241E            632      MOVE.L  D1,         ALIENS_X
+00001542  6000 0020                633      BRA     ALIENS_UPDATE_DONE
+00001546                           634      
+00001546                           635  ALIENS_MOVE_DOWN_RIGHT:
+00001546  23FC 00000001 00002426   636      MOVE.L  #1,         ALIEN_DIR   ; Change direction to right
+00001550  06B9 0000000F 00002422   637      ADD.L   #15,        ALIENS_Y    ; Move down
+0000155A                           638      ; Push aliens back inside boundary
+0000155A  23FC 00000023 0000241E   639      MOVE.L  #35,        ALIENS_X
+00001564                           640      
+00001564                           641  ALIENS_UPDATE_DONE:
+00001564  4E75                     642      RTS
+00001566                           643  
+00001566                           644  *-----------------------------------------------------------
+00001566                           645  * Subroutine    : Draw
+00001566                           646  * Description   : Draw Screen
+00001566                           647  *-----------------------------------------------------------
+00001566                           648  DRAW: 
+00001566                           649      ; Enable back buffer
+00001566  103C 005E                650      MOVE.B  #94,        D0
+0000156A  4E4F                     651      TRAP    #15
+0000156C                           652  
+0000156C                           653      ; Clear the screen (black background)
+0000156C  103C 000B                654      MOVE.B  #TC_CURSR_P,D0          ; Set Cursor Position
+00001570  323C FF00                655      MOVE.W  #$FF00,     D1          ; Clear contents
+00001574  4E4F                     656      TRAP    #15                     ; Trap (Perform action)
+00001576                           657  
+00001576  6100 05DC                658      BSR     DRAW_STARS              ; Draw stars first (background)
+0000157A  6100 007E                659      BSR     DRAW_HUD                ; Draw Score
+0000157E  6100 017A                660      BSR     DRAW_SHIP               ; Draw Player Ship
+00001582  6100 038A                661      BSR     DRAW_BULLET             ; Draw Bullet
+00001586  6100 03CA                662      BSR     DRAW_ALIENS             ; Draw Aliens
+0000158A  6100 0A5E                663      BSR     DRAW_ALIEN_BULLETS      ; Draw alien bullets
+0000158E                           664      
+0000158E                           665      ; Check for game over message
+0000158E  2239 00002472            666      MOVE.L  GAME_OVER,  D1
+00001594  B2BC 00000001            667      CMP.L   #1,         D1
+0000159A  6700 0004                668      BEQ     DRAW_GAME_OVER_MSG
+0000159E                           669      
+0000159E  4E75                     670      RTS
+000015A0                           671  
+000015A0                           672  DRAW_GAME_OVER_MSG:
+000015A0                           673      ; Draw GAME OVER text
+000015A0  103C 000B                674      MOVE.B  #TC_CURSR_P,D0
+000015A4  323C 0F10                675      MOVE.W  #$0F10,     D1          ; Col 15, Row 16
+000015A8  4E4F                     676      TRAP    #15
+000015AA  43F9 000023BE            677      LEA     GAMEOVER_MSG,A1
+000015B0  303C 000D                678      MOVE    #13,        D0
+000015B4  4E4F                     679      TRAP    #15
+000015B6                           680      
+000015B6                           681      ; Draw final score label
+000015B6  103C 000B                682      MOVE.B  #TC_CURSR_P,D0
+000015BA  323C 0F12                683      MOVE.W  #$0F12,     D1          ; Col 15, Row 18
+000015BE  4E4F                     684      TRAP    #15
+000015C0  43F9 000023D0            685      LEA     FINAL_SCORE_MSG,A1
+000015C6  303C 000D                686      MOVE    #13,        D0
+000015CA  4E4F                     687      TRAP    #15
+000015CC                           688      
+000015CC                           689      ; Draw final score value
+000015CC  103C 000B                690      MOVE.B  #TC_CURSR_P,D0
+000015D0  323C 1C12                691      MOVE.W  #$1C12,     D1          ; Col 28, Row 18
+000015D4  4E4F                     692      TRAP    #15
+000015D6  103C 0003                693      MOVE.B  #03,        D0
+000015DA  2239 0000240E            694      MOVE.L  PLAYER_SCORE,D1
+000015E0  4E4F                     695      TRAP    #15
+000015E2                           696      
+000015E2                           697      ; Draw restart message
+000015E2  103C 000B                698      MOVE.B  #TC_CURSR_P,D0
+000015E6  323C 0A14                699      MOVE.W  #$0A14,     D1          ; Col 10, Row 20
+000015EA  4E4F                     700      TRAP    #15
+000015EC  43F9 000023DE            701      LEA     RESTART_MSG,A1
+000015F2  303C 000D                702      MOVE    #13,        D0
+000015F6  4E4F                     703      TRAP    #15
+000015F8  4E75                     704      RTS
+000015FA                           705  
+000015FA                           706  *-----------------------------------------------------------
+000015FA                           707  * Subroutine    : Draw HUD
+000015FA                           708  * Description   : Draw Score, Wave, and Slow Motion Status
+000015FA                           709  *-----------------------------------------------------------
+000015FA                           710  DRAW_HUD:
+000015FA                           711      ; Player Score Message
+000015FA  103C 000B                712      MOVE.B  #TC_CURSR_P,D0          ; Set Cursor Position
+000015FE  323C 0201                713      MOVE.W  #$0201,     D1          ; Col 02, Row 01
+00001602  4E4F                     714      TRAP    #15                     ; Trap (Perform action)
+00001604  43F9 00002357            715      LEA     SCORE_MSG,  A1          ; Score Message
+0000160A  303C 000D                716      MOVE    #13,        D0          ; No Line feed
+0000160E  4E4F                     717      TRAP    #15                     ; Trap (Perform action)
+00001610                           718  
+00001610                           719      ; Player Score Value
+00001610  103C 000B                720      MOVE.B  #TC_CURSR_P,D0          ; Set Cursor Position
+00001614  323C 0A01                721      MOVE.W  #$0A01,     D1          ; Col 10, Row 01
+00001618  4E4F                     722      TRAP    #15                     ; Trap (Perform action)
+0000161A  103C 0003                723      MOVE.B  #03,        D0          ; Display number at D1.L
+0000161E  2239 0000240E            724      MOVE.L  PLAYER_SCORE,D1         ; Move Score to D1.L
+00001624  4E4F                     725      TRAP    #15                     ; Trap (Perform action)
+00001626                           726      
+00001626                           727      ; Wave Number
+00001626  103C 000B                728      MOVE.B  #TC_CURSR_P,D0
+0000162A  323C 1401                729      MOVE.W  #$1401,     D1          ; Col 20, Row 01
+0000162E  4E4F                     730      TRAP    #15
+00001630  43F9 00002360            731      LEA     WAVE_MSG,   A1
+00001636  303C 000D                732      MOVE    #13,        D0
+0000163A  4E4F                     733      TRAP    #15
+0000163C                           734      
+0000163C  103C 000B                735      MOVE.B  #TC_CURSR_P,D0
+00001640  323C 1A01                736      MOVE.W  #$1A01,     D1          ; Col 26, Row 01
+00001644  4E4F                     737      TRAP    #15
+00001646  103C 0003                738      MOVE.B  #03,        D0
+0000164A  2239 000025BA            739      MOVE.L  WAVE_NUM,   D1
+00001650  4E4F                     740      TRAP    #15
+00001652                           741      
+00001652                           742      ; Slow Motion Status
+00001652  103C 000B                743      MOVE.B  #TC_CURSR_P,D0
+00001656  323C 2001                744      MOVE.W  #$2001,     D1          ; Col 32, Row 01
+0000165A  4E4F                     745      TRAP    #15
+0000165C                           746      
+0000165C                           747      ; Check if slow motion is active
+0000165C  2239 000025AA            748      MOVE.L  SLOW_ACTIVE,D1
+00001662  B2BC 00000001            749      CMP.L   #1,         D1
+00001668  6700 0048                750      BEQ     DRAW_SLOW_ACTIVE
+0000166C                           751      
+0000166C                           752      ; Check if on cooldown
+0000166C  103C 0008                753      MOVE.B  #8,         D0
+00001670  4E4F                     754      TRAP    #15
+00001672  2401                     755      MOVE.L  D1,         D2          ; Current time
+00001674  2639 000025B2            756      MOVE.L  SLOW_READY_TIME,D3
+0000167A  B483                     757      CMP.L   D3,         D2          ; Ready?
+0000167C  6C00 006E                758      BGE     DRAW_SLOW_READY
+00001680                           759      
+00001680                           760      ; On cooldown - show time remaining
+00001680  43F9 0000238B            761      LEA     SLOW_CD_MSG,A1
+00001686  303C 000D                762      MOVE    #13,        D0
+0000168A  4E4F                     763      TRAP    #15
+0000168C                           764      
+0000168C                           765      ; Calculate seconds remaining
+0000168C  103C 000B                766      MOVE.B  #TC_CURSR_P,D0
+00001690  323C 2C01                767      MOVE.W  #$2C01,     D1          ; Col 44, Row 01
+00001694  4E4F                     768      TRAP    #15
+00001696                           769      
+00001696  2239 000025B2            770      MOVE.L  SLOW_READY_TIME,D1
+0000169C  9282                     771      SUB.L   D2,         D1          ; Time remaining
+0000169E  82FC 0064                772      DIVU    #100,       D1          ; Convert to seconds
+000016A2  C2BC 0000FFFF            773      AND.L   #$FFFF,     D1
+000016A8  103C 0003                774      MOVE.B  #03,        D0
+000016AC  4E4F                     775      TRAP    #15
+000016AE  6000 0048                776      BRA     HUD_DONE
+000016B2                           777      
+000016B2                           778  DRAW_SLOW_ACTIVE:
+000016B2  43F9 00002378            779      LEA     SLOW_ON_MSG,A1
+000016B8  303C 000D                780      MOVE    #13,        D0
+000016BC  4E4F                     781      TRAP    #15
+000016BE                           782      
+000016BE                           783      ; Check if we should display the TIME STOP message
+000016BE  103C 0008                784      MOVE.B  #8,         D0
+000016C2  4E4F                     785      TRAP    #15
+000016C4  2401                     786      MOVE.L  D1,         D2          ; Current time
+000016C6  2639 000027DA            787      MOVE.L  TIMESTOP_MSG_TIME,D3
+000016CC  B483                     788      CMP.L   D3,         D2          ; Message time expired?
+000016CE  6C00 0028                789      BGE     HUD_DONE                ; Yes, skip message
+000016D2                           790      
+000016D2                           791      ; Draw TIME STOP message in center of screen
+000016D2  103C 000B                792      MOVE.B  #TC_CURSR_P,D0
+000016D6  323C 0610                793      MOVE.W  #$0610,     D1          ; Col 6, Row 16 (center)
+000016DA  4E4F                     794      TRAP    #15
+000016DC  43F9 0000239A            795      LEA     TIMESTOP_MSG,A1
+000016E2  303C 000D                796      MOVE    #13,        D0
+000016E6  4E4F                     797      TRAP    #15
+000016E8  6000 000E                798      BRA     HUD_DONE
+000016EC                           799      
+000016EC                           800  DRAW_SLOW_READY:
+000016EC  43F9 00002367            801      LEA     SLOW_RDY_MSG,A1
+000016F2  303C 000D                802      MOVE    #13,        D0
+000016F6  4E4F                     803      TRAP    #15
+000016F8                           804      
+000016F8                           805  HUD_DONE:
+000016F8  4E75                     806      RTS
+000016FA                           807  
+000016FA                           808  *-----------------------------------------------------------
+000016FA                           809  * Subroutine    : Draw Ship
+000016FA                           810  * Description   : Draw player ship (multi-colored spaceship)
+000016FA                           811  *-----------------------------------------------------------
+000016FA                           812  DRAW_SHIP:
+000016FA                           813      ; === Draw Engine Flames (Animated feel with multiple colors) ===
+000016FA                           814      ; Inner flame (Yellow/White - hottest)
+000016FA  223C 0000FFFF            815      MOVE.L  #YELLOW,    D1
+00001700  103C 0050                816      MOVE.B  #80,        D0
+00001704  4E4F                     817      TRAP    #15
+00001706                           818      
+00001706  2239 00002406            819      MOVE.L  SHIP_X,     D1
+0000170C  5081                     820      ADD.L   #8,         D1
+0000170E  2439 0000240A            821      MOVE.L  SHIP_Y,     D2
+00001714  0682 0000000A            822      ADD.L   #10,        D2
+0000171A  2601                     823      MOVE.L  D1,         D3
+0000171C  5883                     824      ADD.L   #4,         D3
+0000171E  2802                     825      MOVE.L  D2,         D4
+00001720  5A84                     826      ADD.L   #5,         D4
+00001722  103C 0057                827      MOVE.B  #87,        D0
+00001726  4E4F                     828      TRAP    #15
+00001728                           829      
+00001728                           830      ; Outer flame (Orange)
+00001728  223C 000080FF            831      MOVE.L  #$000080FF, D1          ; Orange color
+0000172E  103C 0050                832      MOVE.B  #80,        D0
+00001732  4E4F                     833      TRAP    #15
+00001734                           834      
+00001734  2239 00002406            835      MOVE.L  SHIP_X,     D1
+0000173A  5C81                     836      ADD.L   #6,         D1
+0000173C  2439 0000240A            837      MOVE.L  SHIP_Y,     D2
+00001742  0682 0000000A            838      ADD.L   #10,        D2
+00001748  2601                     839      MOVE.L  D1,         D3
+0000174A  5083                     840      ADD.L   #8,         D3
+0000174C  2802                     841      MOVE.L  D2,         D4
+0000174E  5684                     842      ADD.L   #3,         D4
+00001750  103C 0057                843      MOVE.B  #87,        D0
+00001754  4E4F                     844      TRAP    #15
+00001756                           845      
+00001756                           846      ; === Draw Left Wing (Blue with gradient) ===
+00001756                           847      ; Wing base (darker blue)
+00001756  223C 00AA5500            848      MOVE.L  #$00AA5500, D1          ; Darker blue
+0000175C  103C 0050                849      MOVE.B  #80,        D0
+00001760  4E4F                     850      TRAP    #15
+00001762                           851      
+00001762  2239 00002406            852      MOVE.L  SHIP_X,     D1
+00001768  2439 0000240A            853      MOVE.L  SHIP_Y,     D2
+0000176E  5A82                     854      ADD.L   #5,         D2
+00001770  2601                     855      MOVE.L  D1,         D3
+00001772  5C83                     856      ADD.L   #6,         D3
+00001774  2802                     857      MOVE.L  D2,         D4
+00001776  5A84                     858      ADD.L   #5,         D4
+00001778  103C 0057                859      MOVE.B  #87,        D0
+0000177C  4E4F                     860      TRAP    #15
+0000177E                           861      
+0000177E                           862      ; Wing tip (lighter blue)
+0000177E  223C 00FF8800            863      MOVE.L  #$00FF8800, D1          ; Light blue
+00001784  103C 0050                864      MOVE.B  #80,        D0
+00001788  4E4F                     865      TRAP    #15
+0000178A                           866      
+0000178A  2239 00002406            867      MOVE.L  SHIP_X,     D1
+00001790  5581                     868      SUB.L   #2,         D1
+00001792  2439 0000240A            869      MOVE.L  SHIP_Y,     D2
+00001798  5E82                     870      ADD.L   #7,         D2
+0000179A  2601                     871      MOVE.L  D1,         D3
+0000179C  5883                     872      ADD.L   #4,         D3
+0000179E  2802                     873      MOVE.L  D2,         D4
+000017A0  5684                     874      ADD.L   #3,         D4
+000017A2  103C 0057                875      MOVE.B  #87,        D0
+000017A6  4E4F                     876      TRAP    #15
+000017A8                           877      
+000017A8                           878      ; === Draw Right Wing (Blue with gradient) ===
+000017A8                           879      ; Wing base (darker blue)
+000017A8  223C 00AA5500            880      MOVE.L  #$00AA5500, D1
+000017AE  103C 0050                881      MOVE.B  #80,        D0
+000017B2  4E4F                     882      TRAP    #15
+000017B4                           883      
+000017B4  2239 00002406            884      MOVE.L  SHIP_X,     D1
+000017BA  0681 0000000E            885      ADD.L   #14,        D1
+000017C0  2439 0000240A            886      MOVE.L  SHIP_Y,     D2
+000017C6  5A82                     887      ADD.L   #5,         D2
+000017C8  2601                     888      MOVE.L  D1,         D3
+000017CA  5C83                     889      ADD.L   #6,         D3
+000017CC  2802                     890      MOVE.L  D2,         D4
+000017CE  5A84                     891      ADD.L   #5,         D4
+000017D0  103C 0057                892      MOVE.B  #87,        D0
+000017D4  4E4F                     893      TRAP    #15
+000017D6                           894      
+000017D6                           895      ; Wing tip (lighter blue)
+000017D6  223C 00FF8800            896      MOVE.L  #$00FF8800, D1
+000017DC  103C 0050                897      MOVE.B  #80,        D0
+000017E0  4E4F                     898      TRAP    #15
+000017E2                           899      
+000017E2  2239 00002406            900      MOVE.L  SHIP_X,     D1
+000017E8  0681 00000012            901      ADD.L   #18,        D1
+000017EE  2439 0000240A            902      MOVE.L  SHIP_Y,     D2
+000017F4  5E82                     903      ADD.L   #7,         D2
+000017F6  2601                     904      MOVE.L  D1,         D3
+000017F8  5883                     905      ADD.L   #4,         D3
+000017FA  2802                     906      MOVE.L  D2,         D4
+000017FC  5684                     907      ADD.L   #3,         D4
+000017FE  103C 0057                908      MOVE.B  #87,        D0
+00001802  4E4F                     909      TRAP    #15
+00001804                           910      
+00001804                           911      ; === Draw Main Body (Green with metallic look) ===
+00001804                           912      ; Body shadow (darker green)
+00001804  223C 0000AA00            913      MOVE.L  #$0000AA00, D1          ; Darker green
+0000180A  103C 0050                914      MOVE.B  #80,        D0
+0000180E  4E4F                     915      TRAP    #15
+00001810                           916      
+00001810  2239 00002406            917      MOVE.L  SHIP_X,     D1
+00001816  5A81                     918      ADD.L   #5,         D1
+00001818  2439 0000240A            919      MOVE.L  SHIP_Y,     D2
+0000181E  5882                     920      ADD.L   #4,         D2
+00001820  2601                     921      MOVE.L  D1,         D3
+00001822  0683 0000000A            922      ADD.L   #10,        D3
+00001828  2802                     923      MOVE.L  D2,         D4
+0000182A  5C84                     924      ADD.L   #6,         D4
+0000182C  103C 0057                925      MOVE.B  #87,        D0
+00001830  4E4F                     926      TRAP    #15
+00001832                           927      
+00001832                           928      ; Body main (bright green)
+00001832  223C 0000FF00            929      MOVE.L  #GREEN,     D1
+00001838  103C 0050                930      MOVE.B  #80,        D0
+0000183C  4E4F                     931      TRAP    #15
+0000183E                           932      
+0000183E  2239 00002406            933      MOVE.L  SHIP_X,     D1
+00001844  5A81                     934      ADD.L   #5,         D1
+00001846  2439 0000240A            935      MOVE.L  SHIP_Y,     D2
+0000184C  5482                     936      ADD.L   #2,         D2
+0000184E  2601                     937      MOVE.L  D1,         D3
+00001850  0683 0000000A            938      ADD.L   #10,        D3
+00001856  2802                     939      MOVE.L  D2,         D4
+00001858  5C84                     940      ADD.L   #6,         D4
+0000185A  103C 0057                941      MOVE.B  #87,        D0
+0000185E  4E4F                     942      TRAP    #15
+00001860                           943      
+00001860                           944      ; Body highlight (lighter green stripe)
+00001860  223C 0000FF66            945      MOVE.L  #$0000FF66, D1          ; Light green
+00001866  103C 0050                946      MOVE.B  #80,        D0
+0000186A  4E4F                     947      TRAP    #15
+0000186C                           948      
+0000186C  2239 00002406            949      MOVE.L  SHIP_X,     D1
+00001872  5C81                     950      ADD.L   #6,         D1
+00001874  2439 0000240A            951      MOVE.L  SHIP_Y,     D2
+0000187A  5682                     952      ADD.L   #3,         D2
+0000187C  2601                     953      MOVE.L  D1,         D3
+0000187E  5083                     954      ADD.L   #8,         D3
+00001880  2802                     955      MOVE.L  D2,         D4
+00001882  5484                     956      ADD.L   #2,         D4
+00001884  103C 0057                957      MOVE.B  #87,        D0
+00001888  4E4F                     958      TRAP    #15
+0000188A                           959      
+0000188A                           960      ; === Draw Nose Cone (Pointed top) ===
+0000188A  223C 00AAAAAA            961      MOVE.L  #$00AAAAAA, D1          ; Silver/Gray
+00001890  103C 0050                962      MOVE.B  #80,        D0
+00001894  4E4F                     963      TRAP    #15
+00001896                           964      
+00001896  2239 00002406            965      MOVE.L  SHIP_X,     D1
+0000189C  5081                     966      ADD.L   #8,         D1
+0000189E  2439 0000240A            967      MOVE.L  SHIP_Y,     D2
+000018A4  5582                     968      SUB.L   #2,         D2
+000018A6  2601                     969      MOVE.L  D1,         D3
+000018A8  5883                     970      ADD.L   #4,         D3
+000018AA  2802                     971      MOVE.L  D2,         D4
+000018AC  5884                     972      ADD.L   #4,         D4
+000018AE  103C 0057                973      MOVE.B  #87,        D0
+000018B2  4E4F                     974      TRAP    #15
+000018B4                           975      
+000018B4                           976      ; === Draw Cockpit (Cyan glass) ===
+000018B4  223C 00FFFF00            977      MOVE.L  #CYAN,      D1
+000018BA  103C 0050                978      MOVE.B  #80,        D0
+000018BE  4E4F                     979      TRAP    #15
+000018C0                           980      
+000018C0  2239 00002406            981      MOVE.L  SHIP_X,     D1
+000018C6  5081                     982      ADD.L   #8,         D1
+000018C8  2439 0000240A            983      MOVE.L  SHIP_Y,     D2
+000018CE  5282                     984      ADD.L   #1,         D2
+000018D0  2601                     985      MOVE.L  D1,         D3
+000018D2  5883                     986      ADD.L   #4,         D3
+000018D4  2802                     987      MOVE.L  D2,         D4
+000018D6  5684                     988      ADD.L   #3,         D4
+000018D8  103C 0057                989      MOVE.B  #87,        D0
+000018DC  4E4F                     990      TRAP    #15
+000018DE                           991      
+000018DE                           992      ; === Draw Cockpit Highlight (White reflection) ===
+000018DE  223C 00FFFFFF            993      MOVE.L  #WHITE,     D1
+000018E4  103C 0050                994      MOVE.B  #80,        D0
+000018E8  4E4F                     995      TRAP    #15
+000018EA                           996      
+000018EA  2239 00002406            997      MOVE.L  SHIP_X,     D1
+000018F0  0681 00000009            998      ADD.L   #9,         D1
+000018F6  2439 0000240A            999      MOVE.L  SHIP_Y,     D2
+000018FC  5282                    1000      ADD.L   #1,         D2
+000018FE  2601                    1001      MOVE.L  D1,         D3
+00001900  5483                    1002      ADD.L   #2,         D3
+00001902  2802                    1003      MOVE.L  D2,         D4
+00001904  5284                    1004      ADD.L   #1,         D4
+00001906  103C 0057               1005      MOVE.B  #87,        D0
+0000190A  4E4F                    1006      TRAP    #15
+0000190C                          1007      
+0000190C  4E75                    1008      RTS                             ; Return to subroutine
+0000190E                          1009  
+0000190E                          1010  *-----------------------------------------------------------
+0000190E                          1011  * Subroutine    : Draw Bullet
+0000190E                          1012  * Description   : Draw bullet (yellow rectangle)
+0000190E                          1013  *-----------------------------------------------------------
+0000190E                          1014  DRAW_BULLET:
+0000190E                          1015      ; Check if bullet is active
+0000190E  2239 0000241A           1016      MOVE.L  BULLET_ACT, D1
+00001914  B2BC 00000000           1017      CMP.L   #0,         D1
+0000191A  6700 0034               1018      BEQ     BULLET_DRAW_DONE        ; Not active, skip
+0000191E                          1019      
+0000191E                          1020      ; Set Pixel Colors (Yellow for bullet)
+0000191E  223C 0000FFFF           1021      MOVE.L  #YELLOW,    D1          ; Set Background color
+00001924  103C 0050               1022      MOVE.B  #80,        D0          ; Task for Background Color
+00001928  4E4F                    1023      TRAP    #15                     ; Trap (Perform action)
+0000192A                          1024  
+0000192A                          1025      ; Set X, Y, Width and Height
+0000192A  2239 00002412           1026      MOVE.L  BULLET_X,   D1          ; X
+00001930  2439 00002416           1027      MOVE.L  BULLET_Y,   D2          ; Y
+00001936  2639 00002412           1028      MOVE.L  BULLET_X,   D3
+0000193C  5683                    1029      ADD.L   #BULLET_W,  D3          ; Width
+0000193E  2839 00002416           1030      MOVE.L  BULLET_Y,   D4 
+00001944  0684 0000000A           1031      ADD.L   #BULLET_H,  D4          ; Height
+0000194A                          1032      
+0000194A                          1033      ; Draw Bullet
+0000194A  103C 0057               1034      MOVE.B  #87,        D0          ; Draw filled rectangle
+0000194E  4E4F                    1035      TRAP    #15                     ; Trap (Perform action)
+00001950                          1036      
+00001950                          1037  BULLET_DRAW_DONE:
+00001950  4E75                    1038      RTS                             ; Return to subroutine
+00001952                          1039  
+00001952                          1040  *-----------------------------------------------------------
+00001952                          1041  * Subroutine    : Draw Aliens
+00001952                          1042  * Description   : Draw all alive aliens as cool space invaders
+00001952                          1043  *-----------------------------------------------------------
+00001952                          1044  DRAW_ALIENS:
+00001952  41F9 0000242A           1045      LEA     ALIENS,     A0          ; Load aliens array
+00001958  7E00                    1046      MOVE.L  #0,         D7          ; Counter for alien index
+0000195A                          1047      
+0000195A                          1048  DRAW_ALIEN_LOOP:
+0000195A  BEBC 00000012           1049      CMP.L   #(ALIEN_ROWS*ALIEN_COLS), D7
+00001960  6C00 014A               1050      BGE     DRAW_ALIENS_DONE
+00001964                          1051      
+00001964                          1052      ; Check if this alien is alive
+00001964  2218                    1053      MOVE.L  (A0)+,      D1          ; Get alien status
+00001966  B2BC 00000000           1054      CMP.L   #0,         D1
+0000196C  6700 0138               1055      BEQ     NEXT_ALIEN              ; Dead, skip drawing
+00001970                          1056      
+00001970                          1057      ; Calculate alien position
+00001970                          1058      ; Row = D7 / ALIEN_COLS
+00001970                          1059      ; Col = D7 % ALIEN_COLS
+00001970  2607                    1060      MOVE.L  D7,         D3
+00001972  86FC 0009               1061      DIVU    #ALIEN_COLS,D3          ; D3.W = row, high word = col
+00001976  3803                    1062      MOVE.W  D3,         D4          ; D4 = row
+00001978  4843                    1063      SWAP    D3
+0000197A  3A03                    1064      MOVE.W  D3,         D5          ; D5 = col
+0000197C                          1065      
+0000197C                          1066      ; Calculate X position: ALIENS_X + col * ALIEN_GAP
+0000197C  4281                    1067      CLR.L   D1
+0000197E  3205                    1068      MOVE.W  D5,         D1
+00001980  C2FC 0028               1069      MULU    #ALIEN_GAP, D1
+00001984  D2B9 0000241E           1070      ADD.L   ALIENS_X,   D1          ; Alien X
+0000198A                          1071      
+0000198A                          1072      ; Calculate Y position: ALIENS_Y + row * (ALIEN_H + 10)
+0000198A  4282                    1073      CLR.L   D2
+0000198C  3404                    1074      MOVE.W  D4,         D2
+0000198E  C4FC 0014               1075      MULU    #(ALIEN_H+10),D2
+00001992  D4B9 00002422           1076      ADD.L   ALIENS_Y,   D2          ; Alien Y
+00001998                          1077      
+00001998                          1078      ; Save base X,Y in A1,A2 for drawing parts
+00001998  2641                    1079      MOVE.L  D1,         A3          ; Save base X
+0000199A  2842                    1080      MOVE.L  D2,         A4          ; Save base Y
+0000199C                          1081      
+0000199C                          1082      ; === Draw Alien Tentacles (Purple) ===
+0000199C  223C 00FF00FF           1083      MOVE.L  #$00FF00FF, D1          ; Purple/Magenta
+000019A2  103C 0050               1084      MOVE.B  #80,        D0
+000019A6  4E4F                    1085      TRAP    #15
+000019A8                          1086      
+000019A8                          1087      ; Left tentacle
+000019A8  220B                    1088      MOVE.L  A3,         D1
+000019AA  5481                    1089      ADD.L   #2,         D1
+000019AC  240C                    1090      MOVE.L  A4,         D2
+000019AE  5082                    1091      ADD.L   #8,         D2
+000019B0  2601                    1092      MOVE.L  D1,         D3
+000019B2  5C83                    1093      ADD.L   #6,         D3
+000019B4  2802                    1094      MOVE.L  D2,         D4
+000019B6  5884                    1095      ADD.L   #4,         D4
+000019B8  103C 0057               1096      MOVE.B  #87,        D0
+000019BC  4E4F                    1097      TRAP    #15
+000019BE                          1098      
+000019BE                          1099      ; Right tentacle
+000019BE  220B                    1100      MOVE.L  A3,         D1
+000019C0  0681 00000020           1101      ADD.L   #32,        D1
+000019C6  240C                    1102      MOVE.L  A4,         D2
+000019C8  5082                    1103      ADD.L   #8,         D2
+000019CA  2601                    1104      MOVE.L  D1,         D3
+000019CC  5C83                    1105      ADD.L   #6,         D3
+000019CE  2802                    1106      MOVE.L  D2,         D4
+000019D0  5884                    1107      ADD.L   #4,         D4
+000019D2  103C 0057               1108      MOVE.B  #87,        D0
+000019D6  4E4F                    1109      TRAP    #15
+000019D8                          1110      
+000019D8                          1111      ; === Draw Main Body (Red) ===
+000019D8  223C 000000FF           1112      MOVE.L  #RED,       D1
+000019DE  103C 0050               1113      MOVE.B  #80,        D0
+000019E2  4E4F                    1114      TRAP    #15
+000019E4                          1115      
+000019E4  220B                    1116      MOVE.L  A3,         D1
+000019E6  5881                    1117      ADD.L   #4,         D1
+000019E8  240C                    1118      MOVE.L  A4,         D2
+000019EA  2601                    1119      MOVE.L  D1,         D3
+000019EC  0683 00000020           1120      ADD.L   #32,        D3
+000019F2  2802                    1121      MOVE.L  D2,         D4
+000019F4  0684 0000000A           1122      ADD.L   #10,        D4
+000019FA  103C 0057               1123      MOVE.B  #87,        D0
+000019FE  4E4F                    1124      TRAP    #15
+00001A00                          1125      
+00001A00                          1126      ; === Draw Head Dome (Darker Red) ===
+00001A00  223C 000000AA           1127      MOVE.L  #$000000AA, D1          ; Dark red
+00001A06  103C 0050               1128      MOVE.B  #80,        D0
+00001A0A  4E4F                    1129      TRAP    #15
+00001A0C                          1130      
+00001A0C  220B                    1131      MOVE.L  A3,         D1
+00001A0E  0681 0000000A           1132      ADD.L   #10,        D1
+00001A14  240C                    1133      MOVE.L  A4,         D2
+00001A16  5782                    1134      SUB.L   #3,         D2
+00001A18  2601                    1135      MOVE.L  D1,         D3
+00001A1A  0683 00000014           1136      ADD.L   #20,        D3
+00001A20  2802                    1137      MOVE.L  D2,         D4
+00001A22  5A84                    1138      ADD.L   #5,         D4
+00001A24  103C 0057               1139      MOVE.B  #87,        D0
+00001A28  4E4F                    1140      TRAP    #15
+00001A2A                          1141      
+00001A2A                          1142      ; === Draw Left Eye (Yellow) ===
+00001A2A  223C 0000FFFF           1143      MOVE.L  #YELLOW,    D1
+00001A30  103C 0050               1144      MOVE.B  #80,        D0
+00001A34  4E4F                    1145      TRAP    #15
+00001A36                          1146      
+00001A36  220B                    1147      MOVE.L  A3,         D1
+00001A38  0681 0000000A           1148      ADD.L   #10,        D1
+00001A3E  240C                    1149      MOVE.L  A4,         D2
+00001A40  5482                    1150      ADD.L   #2,         D2
+00001A42  2601                    1151      MOVE.L  D1,         D3
+00001A44  5C83                    1152      ADD.L   #6,         D3
+00001A46  2802                    1153      MOVE.L  D2,         D4
+00001A48  5A84                    1154      ADD.L   #5,         D4
+00001A4A  103C 0057               1155      MOVE.B  #87,        D0
+00001A4E  4E4F                    1156      TRAP    #15
+00001A50                          1157      
+00001A50                          1158      ; === Draw Right Eye (Yellow) ===
+00001A50  220B                    1159      MOVE.L  A3,         D1
+00001A52  0681 00000018           1160      ADD.L   #24,        D1
+00001A58  240C                    1161      MOVE.L  A4,         D2
+00001A5A  5482                    1162      ADD.L   #2,         D2
+00001A5C  2601                    1163      MOVE.L  D1,         D3
+00001A5E  5C83                    1164      ADD.L   #6,         D3
+00001A60  2802                    1165      MOVE.L  D2,         D4
+00001A62  5A84                    1166      ADD.L   #5,         D4
+00001A64  103C 0057               1167      MOVE.B  #87,        D0
+00001A68  4E4F                    1168      TRAP    #15
+00001A6A                          1169      
+00001A6A                          1170      ; === Draw Eye Pupils (Black) ===
+00001A6A  7200                    1171      MOVE.L  #$00000000, D1          ; Black
+00001A6C  103C 0050               1172      MOVE.B  #80,        D0
+00001A70  4E4F                    1173      TRAP    #15
+00001A72                          1174      
+00001A72                          1175      ; Left pupil
+00001A72  220B                    1176      MOVE.L  A3,         D1
+00001A74  0681 0000000C           1177      ADD.L   #12,        D1
+00001A7A  240C                    1178      MOVE.L  A4,         D2
+00001A7C  5882                    1179      ADD.L   #4,         D2
+00001A7E  2601                    1180      MOVE.L  D1,         D3
+00001A80  5483                    1181      ADD.L   #2,         D3
+00001A82  2802                    1182      MOVE.L  D2,         D4
+00001A84  5484                    1183      ADD.L   #2,         D4
+00001A86  103C 0057               1184      MOVE.B  #87,        D0
+00001A8A  4E4F                    1185      TRAP    #15
+00001A8C                          1186      
+00001A8C                          1187      ; Right pupil
+00001A8C  220B                    1188      MOVE.L  A3,         D1
+00001A8E  0681 0000001A           1189      ADD.L   #26,        D1
+00001A94  240C                    1190      MOVE.L  A4,         D2
+00001A96  5882                    1191      ADD.L   #4,         D2
+00001A98  2601                    1192      MOVE.L  D1,         D3
+00001A9A  5483                    1193      ADD.L   #2,         D3
+00001A9C  2802                    1194      MOVE.L  D2,         D4
+00001A9E  5484                    1195      ADD.L   #2,         D4
+00001AA0  103C 0057               1196      MOVE.B  #87,        D0
+00001AA4  4E4F                    1197      TRAP    #15
+00001AA6                          1198      
+00001AA6                          1199  NEXT_ALIEN:
+00001AA6  5287                    1200      ADD.L   #1,         D7
+00001AA8  6000 FEB0               1201      BRA     DRAW_ALIEN_LOOP
+00001AAC                          1202      
+00001AAC                          1203  DRAW_ALIENS_DONE:
+00001AAC  4E75                    1204      RTS
+00001AAE                          1205  
+00001AAE                          1206  *-----------------------------------------------------------
+00001AAE                          1207  * Subroutine    : Initialize Stars
+00001AAE                          1208  * Description   : Set up random star positions
+00001AAE                          1209  *-----------------------------------------------------------
+00001AAE                          1210  INIT_STARS:
+00001AAE  48E7 FFC0               1211      MOVEM.L D0-D7/A0-A1,-(SP)       ; Save registers
+00001AB2  41F9 000025C6           1212      LEA     STAR_X,     A0
+00001AB8  43F9 00002666           1213      LEA     STAR_Y,     A1
+00001ABE                          1214      
+00001ABE                          1215      ; Generate pseudo-random star positions using fixed seed pattern
+00001ABE  7E00                    1216      MOVE.L  #0,         D7          ; Counter
+00001AC0  7825                    1217      MOVE.L  #37,        D4          ; Seed X
+00001AC2  7A5B                    1218      MOVE.L  #91,        D5          ; Seed Y
+00001AC4                          1219      
+00001AC4                          1220  INIT_STAR_LOOP:
+00001AC4  BEBC 00000028           1221      CMP.L   #NUM_STARS, D7
+00001ACA  6C00 005A               1222      BGE     INIT_STARS_DONE
+00001ACE                          1223      
+00001ACE                          1224      ; Calculate X position (pseudo-random)
+00001ACE  2004                    1225      MOVE.L  D4,         D0
+00001AD0  C0FC 007F               1226      MULU    #127,       D0
+00001AD4  0680 00000011           1227      ADD.L   #17,        D0
+00001ADA  80FC 0244               1228      DIVU    #SCR_WIDTH, D0          ; Remainder in upper word
+00001ADE  4840                    1229      SWAP    D0
+00001AE0  C0BC 0000FFFF           1230      AND.L   #$FFFF,     D0
+00001AE6  20C0                    1231      MOVE.L  D0,         (A0)+       ; Store X
+00001AE8  2800                    1232      MOVE.L  D0,         D4          ; Update seed
+00001AEA  0684 00000049           1233      ADD.L   #73,        D4
+00001AF0                          1234      
+00001AF0                          1235      ; Calculate Y position (pseudo-random)
+00001AF0  2005                    1236      MOVE.L  D5,         D0
+00001AF2  C0FC 0061               1237      MULU    #97,        D0
+00001AF6  0680 00000035           1238      ADD.L   #53,        D0
+00001AFC  223C 00000334           1239      MOVE.L  #SCR_HEIGHT,D1
+00001B02  0481 00000064           1240      SUB.L   #100,       D1          ; Keep stars above HUD area
+00001B08  80C1                    1241      DIVU    D1,         D0          ; Remainder in upper word
+00001B0A  4840                    1242      SWAP    D0
+00001B0C  C0BC 0000FFFF           1243      AND.L   #$FFFF,     D0
+00001B12  0680 0000003C           1244      ADD.L   #60,        D0          ; Below top HUD
+00001B18  22C0                    1245      MOVE.L  D0,         (A1)+       ; Store Y
+00001B1A  2A00                    1246      MOVE.L  D0,         D5          ; Update seed
+00001B1C  0685 00000029           1247      ADD.L   #41,        D5
+00001B22                          1248      
+00001B22  5287                    1249      ADD.L   #1,         D7
+00001B24  609E                    1250      BRA     INIT_STAR_LOOP
+00001B26                          1251      
+00001B26                          1252  INIT_STARS_DONE:
+00001B26                          1253      ; Set star brightness
+00001B26  41F9 00002706           1254      LEA     STAR_BRIGHT,A0
+00001B2C  7E00                    1255      MOVE.L  #0,         D7
+00001B2E  7800                    1256      MOVE.L  #0,         D4          ; Brightness cycle
+00001B30                          1257      
+00001B30                          1258  INIT_BRIGHT_LOOP:
+00001B30  BEBC 00000028           1259      CMP.L   #NUM_STARS, D7
+00001B36  6C00 0016               1260      BGE     INIT_BRIGHT_DONE
+00001B3A                          1261      
+00001B3A  20C4                    1262      MOVE.L  D4,         (A0)+
+00001B3C  5284                    1263      ADD.L   #1,         D4
+00001B3E  B8BC 00000003           1264      CMP.L   #3,         D4
+00001B44  6D00 0004               1265      BLT     .SKIP_RESET
+00001B48  7800                    1266      MOVE.L  #0,         D4
+00001B4A                          1267  .SKIP_RESET:
+00001B4A  5287                    1268      ADD.L   #1,         D7
+00001B4C  60E2                    1269      BRA     INIT_BRIGHT_LOOP
+00001B4E                          1270      
+00001B4E                          1271  INIT_BRIGHT_DONE:
+00001B4E  4CDF 03FF               1272      MOVEM.L (SP)+,D0-D7/A0-A1       ; Restore registers
+00001B52  4E75                    1273      RTS
+00001B54                          1274  
+00001B54                          1275  *-----------------------------------------------------------
+00001B54                          1276  * Subroutine    : Draw Stars
+00001B54                          1277  * Description   : Draw twinkling stars in background
+00001B54                          1278  *-----------------------------------------------------------
+00001B54                          1279  DRAW_STARS:
+00001B54  48E7 FFE0               1280      MOVEM.L D0-D7/A0-A2,-(SP)       ; Save registers
+00001B58                          1281      
+00001B58  41F9 000025C6           1282      LEA     STAR_X,     A0
+00001B5E  43F9 00002666           1283      LEA     STAR_Y,     A1
+00001B64  45F9 00002706           1284      LEA     STAR_BRIGHT,A2
+00001B6A  7E00                    1285      MOVE.L  #0,         D7          ; Counter
+00001B6C                          1286      
+00001B6C                          1287  DRAW_STAR_LOOP:
+00001B6C  BEBC 00000028           1288      CMP.L   #NUM_STARS, D7
+00001B72  6C00 004E               1289      BGE     DRAW_STARS_DONE
+00001B76                          1290      
+00001B76                          1291      ; Get brightness level for color
+00001B76  2C1A                    1292      MOVE.L  (A2)+,      D6
+00001B78                          1293      
+00001B78                          1294      ; Set star color based on brightness
+00001B78  BCBC 00000000           1295      CMP.L   #0,         D6
+00001B7E  6700 0016               1296      BEQ     .DIM_STAR
+00001B82  BCBC 00000001           1297      CMP.L   #1,         D6
+00001B88  6700 0016               1298      BEQ     .MED_STAR
+00001B8C                          1299      
+00001B8C                          1300      ; Bright star - white
+00001B8C  223C 00FFFFFF           1301      MOVE.L  #$00FFFFFF, D1
+00001B92  6000 0012               1302      BRA     .SET_COLOR
+00001B96                          1303      
+00001B96                          1304  .DIM_STAR:
+00001B96  223C 00666666           1305      MOVE.L  #$00666666, D1
+00001B9C  6000 0008               1306      BRA     .SET_COLOR
+00001BA0                          1307      
+00001BA0                          1308  .MED_STAR:
+00001BA0  223C 00AAAAAA           1309      MOVE.L  #$00AAAAAA, D1
+00001BA6                          1310      
+00001BA6                          1311  .SET_COLOR:
+00001BA6  103C 0050               1312      MOVE.B  #80,        D0
+00001BAA  4E4F                    1313      TRAP    #15
+00001BAC                          1314      
+00001BAC                          1315      ; Get star position
+00001BAC  2218                    1316      MOVE.L  (A0)+,      D1          ; X
+00001BAE  2419                    1317      MOVE.L  (A1)+,      D2          ; Y
+00001BB0                          1318      
+00001BB0                          1319      ; Draw small star (2x2 pixel)
+00001BB0  2601                    1320      MOVE.L  D1,         D3
+00001BB2  5483                    1321      ADD.L   #2,         D3          ; X + 2
+00001BB4  2802                    1322      MOVE.L  D2,         D4
+00001BB6  5484                    1323      ADD.L   #2,         D4          ; Y + 2
+00001BB8                          1324      
+00001BB8  103C 0057               1325      MOVE.B  #87,        D0          ; Draw filled rectangle
+00001BBC  4E4F                    1326      TRAP    #15
+00001BBE                          1327      
+00001BBE  5287                    1328      ADD.L   #1,         D7
+00001BC0  60AA                    1329      BRA     DRAW_STAR_LOOP
+00001BC2                          1330      
+00001BC2                          1331  DRAW_STARS_DONE:
+00001BC2  4CDF 07FF               1332      MOVEM.L (SP)+,D0-D7/A0-A2       ; Restore registers
+00001BC6  4E75                    1333      RTS
+00001BC8                          1334  
+00001BC8                          1335  *-----------------------------------------------------------
+00001BC8                          1336  * Subroutines   : Sound Load and Play
+00001BC8                          1337  * Description   : Game sounds - using traps 74/75/77 for multi-sound support
+00001BC8                          1338  *-----------------------------------------------------------
+00001BC8                          1339  SHOOT_LOAD:
+00001BC8  43F9 000027A6           1340      LEA     SHOOT_WAV,  A1          ; Load Wav File into A1
+00001BCE  323C 0000               1341      MOVE    #SHOOT_INDEX,D1         ; Assign it INDEX
+00001BD2  303C 004A               1342      MOVE    #74,        D0          ; Load into memory (trap 74)
+00001BD6  4E4F                    1343      TRAP    #15                     ; Trap (Perform action)
+00001BD8  4E75                    1344      RTS                             ; Return to subroutine
+00001BDA                          1345  
+00001BDA                          1346  PLAY_SHOOT:
+00001BDA  48E7 FFFE               1347      MOVEM.L D0-D7/A0-A6,-(SP)       ; Save registers
+00001BDE  323C 0000               1348      MOVE    #SHOOT_INDEX,D1         ; Load Sound INDEX
+00001BE2  303C 004B               1349      MOVE    #75,        D0          ; Play Sound (trap 75)
+00001BE6  4E4F                    1350      TRAP    #15                     ; Trap (Perform action)
+00001BE8  4CDF 7FFF               1351      MOVEM.L (SP)+,D0-D7/A0-A6       ; Restore registers
+00001BEC  4E75                    1352      RTS                             ; Return to subroutine
+00001BEE                          1353  
+00001BEE                          1354  HIT_LOAD:
+00001BEE  43F9 000027B0           1355      LEA     HIT_WAV,    A1          ; Load Wav File into A1
+00001BF4  323C 0001               1356      MOVE    #HIT_INDEX, D1          ; Assign it INDEX
+00001BF8  303C 004A               1357      MOVE    #74,        D0          ; Load into memory (trap 74)
+00001BFC  4E4F                    1358      TRAP    #15                     ; Trap (Perform action)
+00001BFE  4E75                    1359      RTS                             ; Return to subroutine
+00001C00                          1360  
+00001C00                          1361  PLAY_HIT:
+00001C00  48E7 FFFE               1362      MOVEM.L D0-D7/A0-A6,-(SP)       ; Save registers
+00001C04  323C 0001               1363      MOVE    #HIT_INDEX, D1          ; Load Sound INDEX
+00001C08  303C 004B               1364      MOVE    #75,        D0          ; Play Sound (trap 75)
+00001C0C  4E4F                    1365      TRAP    #15                     ; Trap (Perform action)
+00001C0E  4CDF 7FFF               1366      MOVEM.L (SP)+,D0-D7/A0-A6       ; Restore registers
+00001C12  4E75                    1367      RTS                             ; Return to subroutine
+00001C14                          1368  
+00001C14                          1369  OPPS_LOAD:
+00001C14  43F9 000027B8           1370      LEA     OPPS_WAV,   A1          ; Load Wav File into A1
+00001C1A  323C 0002               1371      MOVE    #OPPS_INDEX,D1          ; Assign it INDEX
+00001C1E  303C 004A               1372      MOVE    #74,        D0          ; Load into memory (trap 74)
+00001C22  4E4F                    1373      TRAP    #15                     ; Trap (Perform action)
+00001C24  4E75                    1374      RTS                             ; Return to subroutine
+00001C26                          1375  
+00001C26                          1376  PLAY_OPPS:
+00001C26  48E7 FFFE               1377      MOVEM.L D0-D7/A0-A6,-(SP)       ; Save registers
+00001C2A  323C 0002               1378      MOVE    #OPPS_INDEX,D1          ; Load Sound INDEX
+00001C2E  303C 004B               1379      MOVE    #75,        D0          ; Play Sound (trap 75)
+00001C32  4E4F                    1380      TRAP    #15                     ; Trap (Perform action)
+00001C34  4CDF 7FFF               1381      MOVEM.L (SP)+,D0-D7/A0-A6       ; Restore registers
+00001C38  4E75                    1382      RTS                             ; Return to subroutine
+00001C3A                          1383  
+00001C3A                          1384  MUSIC_LOAD:
+00001C3A  43F9 000027C1           1385      LEA     MUSIC_WAV,  A1          ; Load Wav File into A1
+00001C40  323C 0003               1386      MOVE    #MUSIC_INDEX,D1         ; Assign it INDEX
+00001C44  303C 004A               1387      MOVE    #74,        D0          ; Load into memory (trap 74)
+00001C48  4E4F                    1388      TRAP    #15                     ; Trap (Perform action)
+00001C4A  4E75                    1389      RTS                             ; Return to subroutine
+00001C4C                          1390  
+00001C4C                          1391  PLAY_MUSIC:
+00001C4C  323C 0003               1392      MOVE    #MUSIC_INDEX,D1         ; Load Sound INDEX
+00001C50  7401                    1393      MOVE.L  #1,         D2          ; D2=1 for loop
+00001C52  303C 004D               1394      MOVE    #77,        D0          ; Trap 77 = Loop control
+00001C56  4E4F                    1395      TRAP    #15                     ; Trap (Perform action)
+00001C58  4E75                    1396      RTS                             ; Return to subroutine
+00001C5A                          1397  
+00001C5A                          1398  STOP_MUSIC:
+00001C5A  323C 0003               1399      MOVE    #MUSIC_INDEX,D1         ; Load Sound INDEX
+00001C5E  7402                    1400      MOVE.L  #2,         D2          ; D2=2 for stop
+00001C60  303C 004D               1401      MOVE    #77,        D0          ; Trap 77 = Loop control
+00001C64  4E4F                    1402      TRAP    #15                     ; Trap (Perform action)
+00001C66  4E75                    1403      RTS                             ; Return to subroutine
+00001C68                          1404  
+00001C68                          1405  TIMEFREEZE_LOAD:
+00001C68  43F9 000027CB           1406      LEA     TIMEFREEZE_WAV,A1       ; Load Wav File into A1
+00001C6E  323C 0004               1407      MOVE    #TIMEFREEZE_INDEX,D1    ; Assign it INDEX
+00001C72  303C 004A               1408      MOVE    #74,        D0          ; Load into memory (trap 74)
+00001C76  4E4F                    1409      TRAP    #15                     ; Trap (Perform action)
+00001C78  4E75                    1410      RTS                             ; Return to subroutine
+00001C7A                          1411  
+00001C7A                          1412  PLAY_TIMEFREEZE:
+00001C7A  48E7 FFFE               1413      MOVEM.L D0-D7/A0-A6,-(SP)       ; Save registers
+00001C7E  323C 0004               1414      MOVE    #TIMEFREEZE_INDEX,D1    ; Load Sound INDEX
+00001C82  303C 004B               1415      MOVE    #75,        D0          ; Play Sound (trap 75)
+00001C86  4E4F                    1416      TRAP    #15                     ; Trap (Perform action)
+00001C88  4CDF 7FFF               1417      MOVEM.L (SP)+,D0-D7/A0-A6       ; Restore registers
+00001C8C  4E75                    1418      RTS
+00001C8E                          1419  
+00001C8E                          1420  *-----------------------------------------------------------
+00001C8E                          1421  * Subroutine    : Check Bullet Collisions
+00001C8E                          1422  * Description   : Check if bullet hits any alien
+00001C8E                          1423  *-----------------------------------------------------------
+00001C8E                          1424  CHECK_BULLET_COLLISIONS:
+00001C8E                          1425      ; Check if bullet is active
+00001C8E  2239 0000241A           1426      MOVE.L  BULLET_ACT, D1
+00001C94  B2BC 00000000           1427      CMP.L   #0,         D1
+00001C9A  6700 00CE               1428      BEQ     BULLET_COLL_DONE        ; Not active, skip
+00001C9E                          1429      
+00001C9E                          1430      ; Get bullet position
+00001C9E  2239 00002412           1431      MOVE.L  BULLET_X,   D1          ; Bullet X
+00001CA4  2439 00002416           1432      MOVE.L  BULLET_Y,   D2          ; Bullet Y
+00001CAA                          1433      
+00001CAA  41F9 0000242A           1434      LEA     ALIENS,     A0          ; Load aliens array
+00001CB0  7E00                    1435      MOVE.L  #0,         D7          ; Counter
+00001CB2                          1436      
+00001CB2                          1437  CHECK_ALIEN_COLL_LOOP:
+00001CB2  BEBC 00000012           1438      CMP.L   #(ALIEN_ROWS*ALIEN_COLS), D7
+00001CB8  6C00 00B0               1439      BGE     BULLET_COLL_DONE
+00001CBC                          1440      
+00001CBC                          1441      ; Check if alien is alive
+00001CBC  2248                    1442      MOVE.L  A0,         A1          ; Save A0
+00001CBE  2C07                    1443      MOVE.L  D7,         D6
+00001CC0  CCFC 0004               1444      MULU    #4,         D6
+00001CC4  D3C6                    1445      ADDA.L  D6,         A1
+00001CC6  2611                    1446      MOVE.L  (A1),       D3
+00001CC8  B6BC 00000000           1447      CMP.L   #0,         D3
+00001CCE  6700 0094               1448      BEQ     NEXT_ALIEN_COLL         ; Dead, skip
+00001CD2                          1449      
+00001CD2                          1450      ; Calculate alien position
+00001CD2  2607                    1451      MOVE.L  D7,         D3
+00001CD4  86FC 0009               1452      DIVU    #ALIEN_COLS,D3          ; D3.W = row
+00001CD8  3803                    1453      MOVE.W  D3,         D4          ; D4 = row
+00001CDA  4843                    1454      SWAP    D3
+00001CDC  3A03                    1455      MOVE.W  D3,         D5          ; D5 = col
+00001CDE                          1456      
+00001CDE                          1457      ; Calculate alien X: ALIENS_X + col * ALIEN_GAP
+00001CDE  4283                    1458      CLR.L   D3
+00001CE0  3605                    1459      MOVE.W  D5,         D3
+00001CE2  C6FC 0028               1460      MULU    #ALIEN_GAP, D3
+00001CE6  D6B9 0000241E           1461      ADD.L   ALIENS_X,   D3          ; Alien X in D3
+00001CEC                          1462      
+00001CEC                          1463      ; Calculate alien Y: ALIENS_Y + row * (ALIEN_H + 10)
+00001CEC  4286                    1464      CLR.L   D6
+00001CEE  3C04                    1465      MOVE.W  D4,         D6
+00001CF0  CCFC 0014               1466      MULU    #(ALIEN_H+10),D6
+00001CF4  DCB9 00002422           1467      ADD.L   ALIENS_Y,   D6          ; Alien Y in D6
+00001CFA                          1468      
+00001CFA                          1469      ; Simple AABB collision check
+00001CFA                          1470      ; Bullet center vs alien bounds
+00001CFA  2239 00002412           1471      MOVE.L  BULLET_X,   D1
+00001D00  5281                    1472      ADD.L   #BULLET_W/2,D1          ; Bullet center X
+00001D02                          1473      
+00001D02                          1474      ; Check X bounds
+00001D02  B283                    1475      CMP.L   D3,         D1          ; Bullet X < Alien X?
+00001D04  6D00 005E               1476      BLT     NEXT_ALIEN_COLL
+00001D08  2803                    1477      MOVE.L  D3,         D4
+00001D0A  0684 00000028           1478      ADD.L   #ALIEN_W,   D4
+00001D10  B284                    1479      CMP.L   D4,         D1          ; Bullet X > Alien X + W?
+00001D12  6E00 0050               1480      BGT     NEXT_ALIEN_COLL
+00001D16                          1481      
+00001D16                          1482      ; Check Y bounds
+00001D16  2439 00002416           1483      MOVE.L  BULLET_Y,   D2
+00001D1C  B486                    1484      CMP.L   D6,         D2          ; Bullet Y < Alien Y?
+00001D1E  6D00 0044               1485      BLT     NEXT_ALIEN_COLL
+00001D22  2806                    1486      MOVE.L  D6,         D4
+00001D24  0684 0000000A           1487      ADD.L   #ALIEN_H,   D4
+00001D2A  B484                    1488      CMP.L   D4,         D2          ; Bullet Y > Alien Y + H?
+00001D2C  6E00 0036               1489      BGT     NEXT_ALIEN_COLL
+00001D30                          1490      
+00001D30                          1491      ; HIT! Kill alien and deactivate bullet
+00001D30  6100 FECE               1492      BSR     PLAY_HIT
+00001D34  22BC 00000000           1493      MOVE.L  #0,         (A1)        ; Kill alien
+00001D3A  23FC 00000000 0000241A  1494      MOVE.L  #0,         BULLET_ACT  ; Deactivate bullet
+00001D44  23FC 00000082 00002416  1495      MOVE.L  #BULLET_OFF,BULLET_Y
+00001D4E                          1496      
+00001D4E                          1497      ; Add points
+00001D4E  2239 0000240E           1498      MOVE.L  PLAYER_SCORE,D1
+00001D54  0681 0000000A           1499      ADD.L   #POINTS,    D1
+00001D5A  23C1 0000240E           1500      MOVE.L  D1,         PLAYER_SCORE
+00001D60                          1501      
+00001D60  6000 0008               1502      BRA     BULLET_COLL_DONE
+00001D64                          1503      
+00001D64                          1504  NEXT_ALIEN_COLL:
+00001D64  5287                    1505      ADD.L   #1,         D7
+00001D66  6000 FF4A               1506      BRA     CHECK_ALIEN_COLL_LOOP
+00001D6A                          1507      
+00001D6A                          1508  BULLET_COLL_DONE:
+00001D6A  4E75                    1509      RTS
+00001D6C                          1510  
+00001D6C                          1511  *-----------------------------------------------------------
+00001D6C                          1512  * Subroutine    : Check if aliens reached bottom
+00001D6C                          1513  * Description   : Game over if aliens reach ship
+00001D6C                          1514  *-----------------------------------------------------------
+00001D6C                          1515  CHECK_ALIEN_REACHED:
+00001D6C                          1516      ; Calculate lowest alien Y position
+00001D6C  2239 00002422           1517      MOVE.L  ALIENS_Y,   D1
+00001D72  0681 00000028           1518      ADD.L   #(ALIEN_ROWS*(ALIEN_H+10)), D1
+00001D78                          1519      
+00001D78                          1520      ; Compare with ship Y
+00001D78  2439 0000240A           1521      MOVE.L  SHIP_Y,     D2
+00001D7E  B282                    1522      CMP.L   D2,         D1
+00001D80  6C00 0004               1523      BGE     SET_GAME_OVER
+00001D84  4E75                    1524      RTS
+00001D86                          1525  
+00001D86                          1526  SET_GAME_OVER:
+00001D86  6100 FE9E               1527      BSR     PLAY_OPPS
+00001D8A  23FC 00000001 00002472  1528      MOVE.L  #1,         GAME_OVER
+00001D94  4E75                    1529      RTS
+00001D96                          1530  
+00001D96                          1531  *-----------------------------------------------------------
+00001D96                          1532  * Subroutine    : Check Next Wave
+00001D96                          1533  * Description   : If all aliens dead, spawn next wave (faster)
+00001D96                          1534  *-----------------------------------------------------------
+00001D96                          1535  CHECK_NEXT_WAVE:
+00001D96  41F9 0000242A           1536      LEA     ALIENS,     A0
+00001D9C  7E11                    1537      MOVE.L  #(ALIEN_ROWS*ALIEN_COLS)-1, D7
+00001D9E                          1538      
+00001D9E                          1539  CHECK_WAVE_LOOP:
+00001D9E  2218                    1540      MOVE.L  (A0)+,      D1
+00001DA0  B2BC 00000001           1541      CMP.L   #1,         D1          ; Any alien alive?
+00001DA6  6700 0048               1542      BEQ     WAVE_NOT_DONE
+00001DAA  51CF FFF2               1543      DBRA    D7,         CHECK_WAVE_LOOP
+00001DAE                          1544      
+00001DAE                          1545      ; All aliens dead - spawn next wave!
+00001DAE  6100 FE50               1546      BSR     PLAY_HIT                ; Sound for new wave
+00001DB2                          1547      
+00001DB2                          1548      ; Increment wave number
+00001DB2  2239 000025BA           1549      MOVE.L  WAVE_NUM,   D1
+00001DB8  5281                    1550      ADD.L   #1,         D1
+00001DBA  23C1 000025BA           1551      MOVE.L  D1,         WAVE_NUM
+00001DC0                          1552      
+00001DC0                          1553      ; Increase alien speed by 3 each wave
+00001DC0  2239 000025BE           1554      MOVE.L  CURRENT_ALIEN_SPD,D1
+00001DC6  5681                    1555      ADD.L   #3,         D1          ; Add 3 speed per wave
+00001DC8  B2BC 00000014           1556      CMP.L   #20,        D1          ; Cap at speed 20
+00001DCE  6F00 0004               1557      BLE     SET_NEW_SPEED
+00001DD2  7214                    1558      MOVE.L  #20,        D1
+00001DD4                          1559  SET_NEW_SPEED:
+00001DD4  23C1 000025BE           1560      MOVE.L  D1,         CURRENT_ALIEN_SPD
+00001DDA                          1561      
+00001DDA                          1562      ; Reset aliens
+00001DDA  6100 F47E               1563      BSR     INIT_ALIENS
+00001DDE                          1564      
+00001DDE                          1565      ; Add bonus points for completing wave
+00001DDE  2239 0000240E           1566      MOVE.L  PLAYER_SCORE,D1
+00001DE4  0681 00000032           1567      ADD.L   #50,        D1          ; 50 bonus points per wave
+00001DEA  23C1 0000240E           1568      MOVE.L  D1,         PLAYER_SCORE
+00001DF0                          1569      
+00001DF0                          1570  WAVE_NOT_DONE:
+00001DF0  4E75                    1571      RTS
+00001DF2                          1572  
+00001DF2                          1573  *-----------------------------------------------------------
+00001DF2                          1574  * Subroutine    : Init Alien Bullets
+00001DF2                          1575  * Description   : Initialize alien bullet array
+00001DF2                          1576  *-----------------------------------------------------------
+00001DF2                          1577  INIT_ALIEN_BULLETS:
+00001DF2  41F9 0000253E           1578      LEA     ALN_BLT_ACT,A0
+00001DF8  7E18                    1579      MOVE.L  #MAX_ALN_BLT-1,D7
+00001DFA                          1580  INIT_ABL_LOOP:
+00001DFA  20FC 00000000           1581      MOVE.L  #0,         (A0)+       ; Set inactive
+00001E00  51CF FFF8               1582      DBRA    D7,         INIT_ABL_LOOP
+00001E04  4E75                    1583      RTS
+00001E06                          1584  
+00001E06                          1585  *-----------------------------------------------------------
+00001E06                          1586  * Subroutine    : Alien Shoot Random
+00001E06                          1587  * Description   : Randomly fire bullets from alive aliens
+00001E06                          1588  *-----------------------------------------------------------
+00001E06                          1589  ALIEN_SHOOT_RANDOM:
+00001E06                          1590      ; Generate random number to decide if we shoot
+00001E06  6100 022A               1591      BSR     GET_RANDOM
+00001E0A  C2BC 000000FF           1592      AND.L   #$FF,       D1          ; Limit to 0-255
+00001E10  B2BC 00000004           1593      CMP.L   #4,         D1          ; ~1.5% chance each frame
+00001E16  6E00 00A0               1594      BGT     NO_ALIEN_SHOT
+00001E1A                          1595      
+00001E1A                          1596      ; Count alive aliens first
+00001E1A  41F9 0000242A           1597      LEA     ALIENS,     A0
+00001E20  7A00                    1598      MOVE.L  #0,         D5          ; Alive count
+00001E22  7E11                    1599      MOVE.L  #(ALIEN_ROWS*ALIEN_COLS)-1, D7
+00001E24                          1600  COUNT_ALIVE_LOOP:
+00001E24  2218                    1601      MOVE.L  (A0)+,      D1
+00001E26  B2BC 00000001           1602      CMP.L   #1,         D1
+00001E2C  6600 0004               1603      BNE     .NOT_ALIVE
+00001E30  5285                    1604      ADD.L   #1,         D5
+00001E32                          1605  .NOT_ALIVE:
+00001E32  51CF FFF0               1606      DBRA    D7,         COUNT_ALIVE_LOOP
+00001E36                          1607      
+00001E36                          1608      ; If no aliens alive, skip
+00001E36  BABC 00000000           1609      CMP.L   #0,         D5
+00001E3C  6700 007A               1610      BEQ     NO_ALIEN_SHOT
+00001E40                          1611      
+00001E40                          1612      ; Pick random index from 0 to (alive_count-1)
+00001E40  6100 01F0               1613      BSR     GET_RANDOM
+00001E44  C2BC 0000FFFF           1614      AND.L   #$FFFF,     D1
+00001E4A  82C5                    1615      DIVU    D5,         D1          ; D1.W = quotient, high word = remainder
+00001E4C  4841                    1616      SWAP    D1
+00001E4E  C2BC 0000FFFF           1617      AND.L   #$FFFF,     D1          ; D1 = random index (0 to alive_count-1)
+00001E54                          1618      
+00001E54                          1619      ; Find the Nth alive alien
+00001E54  41F9 0000242A           1620      LEA     ALIENS,     A0
+00001E5A  7E00                    1621      MOVE.L  #0,         D7          ; Alien array index
+00001E5C  7CFF                    1622      MOVE.L  #-1,        D6          ; Alive counter (will increment to 0 on first find)
+00001E5E                          1623      
+00001E5E                          1624  FIND_NTH_ALIEN:
+00001E5E  BEBC 00000012           1625      CMP.L   #(ALIEN_ROWS*ALIEN_COLS), D7
+00001E64  6C00 0052               1626      BGE     NO_ALIEN_SHOT           ; Safety check
+00001E68                          1627      
+00001E68  2418                    1628      MOVE.L  (A0)+,      D2
+00001E6A  B4BC 00000001           1629      CMP.L   #1,         D2
+00001E70  6600 000A               1630      BNE     .SKIP_DEAD
+00001E74                          1631      
+00001E74                          1632      ; Found alive alien, increment counter
+00001E74  5286                    1633      ADD.L   #1,         D6
+00001E76  BC81                    1634      CMP.L   D1,         D6          ; Is this the one we want?
+00001E78  6700 0006               1635      BEQ     ALIEN_SELECTED
+00001E7C                          1636      
+00001E7C                          1637  .SKIP_DEAD:
+00001E7C  5287                    1638      ADD.L   #1,         D7
+00001E7E  60DE                    1639      BRA     FIND_NTH_ALIEN
+00001E80                          1640      
+00001E80                          1641  ALIEN_SELECTED:
+00001E80                          1642      ; D7 now has the alien index
+00001E80                          1643      ; Calculate alien position for bullet spawn
+00001E80  2607                    1644      MOVE.L  D7,         D3
+00001E82  86FC 0009               1645      DIVU    #ALIEN_COLS,D3
+00001E86  3803                    1646      MOVE.W  D3,         D4          ; Row
+00001E88  4843                    1647      SWAP    D3
+00001E8A  3A03                    1648      MOVE.W  D3,         D5          ; Col
+00001E8C                          1649      
+00001E8C                          1650      ; Alien X position
+00001E8C  4281                    1651      CLR.L   D1
+00001E8E  3205                    1652      MOVE.W  D5,         D1
+00001E90  C2FC 0028               1653      MULU    #ALIEN_GAP, D1
+00001E94  D2B9 0000241E           1654      ADD.L   ALIENS_X,   D1
+00001E9A  0681 00000014           1655      ADD.L   #ALIEN_W/2, D1          ; Center of alien
+00001EA0                          1656      
+00001EA0                          1657      ; Alien Y position
+00001EA0  4282                    1658      CLR.L   D2
+00001EA2  3404                    1659      MOVE.W  D4,         D2
+00001EA4  C4FC 0014               1660      MULU    #(ALIEN_H+10),D2
+00001EA8  D4B9 00002422           1661      ADD.L   ALIENS_Y,   D2
+00001EAE  0682 0000000A           1662      ADD.L   #ALIEN_H,   D2          ; Bottom of alien
+00001EB4                          1663      
+00001EB4                          1664      ; Find inactive bullet slot
+00001EB4  6100 0004               1665      BSR     FIRE_ALIEN_BULLET
+00001EB8                          1666      
+00001EB8                          1667  NO_ALIEN_SHOT:
+00001EB8  4E75                    1668      RTS
+00001EBA                          1669  
+00001EBA                          1670  *-----------------------------------------------------------
+00001EBA                          1671  * Subroutine    : Fire Alien Bullet
+00001EBA                          1672  * Description   : Spawn alien bullet at D1,D2 position
+00001EBA                          1673  *-----------------------------------------------------------
+00001EBA                          1674  FIRE_ALIEN_BULLET:
+00001EBA  41F9 0000253E           1675      LEA     ALN_BLT_ACT,A0
+00001EC0  43F9 00002476           1676      LEA     ALN_BLT_X,  A1
+00001EC6  45F9 000024DA           1677      LEA     ALN_BLT_Y,  A2
+00001ECC  7E18                    1678      MOVE.L  #MAX_ALN_BLT-1,D7
+00001ECE                          1679  FIND_SLOT:
+00001ECE  2618                    1680      MOVE.L  (A0)+,      D3
+00001ED0  B6BC 00000000           1681      CMP.L   #0,         D3
+00001ED6  6700 000C               1682      BEQ     FOUND_SLOT
+00001EDA  5889                    1683      ADDA.L  #4,         A1
+00001EDC  588A                    1684      ADDA.L  #4,         A2
+00001EDE  51CF FFEE               1685      DBRA    D7,         FIND_SLOT
+00001EE2  4E75                    1686      RTS                             ; No slots available
+00001EE4                          1687      
+00001EE4                          1688  FOUND_SLOT:
+00001EE4  217C 00000001 FFFC      1689      MOVE.L  #1,         -4(A0)      ; Set active
+00001EEC  2281                    1690      MOVE.L  D1,         (A1)        ; Set X
+00001EEE  2482                    1691      MOVE.L  D2,         (A2)        ; Set Y
+00001EF0  4E75                    1692      RTS
+00001EF2                          1693  
+00001EF2                          1694  *-----------------------------------------------------------
+00001EF2                          1695  * Subroutine    : Update Alien Bullets
+00001EF2                          1696  * Description   : Move alien bullets downward
+00001EF2                          1697  *-----------------------------------------------------------
+00001EF2                          1698  UPDATE_ALIEN_BULLETS:
+00001EF2                          1699      ; Check if slow motion is active for bullet speed
+00001EF2  2C39 000025AA           1700      MOVE.L  SLOW_ACTIVE,D6
+00001EF8  BCBC 00000001           1701      CMP.L   #1,         D6
+00001EFE  6600 0028               1702      BNE     UPDATE_ABL_NORMAL
+00001F02                          1703      
+00001F02                          1704      ; Slow motion active - only move every 4th frame
+00001F02  2C39 000025A2           1705      MOVE.L  ABL_SLOW_CNT,D6
+00001F08  5286                    1706      ADD.L   #1,         D6
+00001F0A  BCBC 00000004           1707      CMP.L   #4,         D6          ; Move every 4th frame
+00001F10  6D00 000E               1708      BLT     SKIP_ABL_UPDATE
+00001F14  4286                    1709      CLR.L   D6
+00001F16  23C6 000025A2           1710      MOVE.L  D6,         ABL_SLOW_CNT
+00001F1C  6000 0014               1711      BRA     DO_ABL_UPDATE
+00001F20                          1712      
+00001F20                          1713  SKIP_ABL_UPDATE:
+00001F20  23C6 000025A2           1714      MOVE.L  D6,         ABL_SLOW_CNT
+00001F26  4E75                    1715      RTS
+00001F28                          1716      
+00001F28                          1717  UPDATE_ABL_NORMAL:
+00001F28  23FC 00000000 000025A2  1718      MOVE.L  #0,         ABL_SLOW_CNT ; Reset counter when not in slow-mo
+00001F32                          1719      
+00001F32                          1720  DO_ABL_UPDATE:
+00001F32  41F9 0000253E           1721      LEA     ALN_BLT_ACT,A0
+00001F38  43F9 000024DA           1722      LEA     ALN_BLT_Y,  A1
+00001F3E  7E18                    1723      MOVE.L  #MAX_ALN_BLT-1,D7
+00001F40                          1724  UPD_ABL_LOOP:
+00001F40  2210                    1725      MOVE.L  (A0),       D1
+00001F42  B2BC 00000000           1726      CMP.L   #0,         D1
+00001F48  6700 0020               1727      BEQ     NEXT_ABL
+00001F4C                          1728      
+00001F4C                          1729      ; Move bullet down
+00001F4C  2211                    1730      MOVE.L  (A1),       D1
+00001F4E  5281                    1731      ADD.L   #ALN_BLT_SPD,D1
+00001F50  2281                    1732      MOVE.L  D1,         (A1)
+00001F52                          1733      
+00001F52                          1734      ; Check if off screen
+00001F52  4282                    1735      CLR.L   D2
+00001F54  3439 00002404           1736      MOVE.W  SCREEN_H,   D2
+00001F5A  B282                    1737      CMP.L   D2,         D1
+00001F5C  6C00 0006               1738      BGE     DEACT_ABL
+00001F60  6000 0008               1739      BRA     NEXT_ABL
+00001F64                          1740      
+00001F64                          1741  DEACT_ABL:
+00001F64  20BC 00000000           1742      MOVE.L  #0,         (A0)        ; Deactivate
+00001F6A                          1743      
+00001F6A                          1744  NEXT_ABL:
+00001F6A  5888                    1745      ADDA.L  #4,         A0
+00001F6C  5889                    1746      ADDA.L  #4,         A1
+00001F6E  51CF FFD0               1747      DBRA    D7,         UPD_ABL_LOOP
+00001F72  4E75                    1748      RTS
+00001F74                          1749  
+00001F74                          1750  *-----------------------------------------------------------
+00001F74                          1751  * Subroutine    : Check Alien Bullet Hit
+00001F74                          1752  * Description   : Check if player is hit by alien bullet
+00001F74                          1753  *-----------------------------------------------------------
+00001F74                          1754  CHECK_ALIEN_BULLET_HIT:
+00001F74  41F9 0000253E           1755      LEA     ALN_BLT_ACT,A0
+00001F7A  43F9 00002476           1756      LEA     ALN_BLT_X,  A1
+00001F80  45F9 000024DA           1757      LEA     ALN_BLT_Y,  A2
+00001F86  7E18                    1758      MOVE.L  #MAX_ALN_BLT-1,D7
+00001F88                          1759  CHK_HIT_LOOP:
+00001F88  2210                    1760      MOVE.L  (A0),       D1
+00001F8A  B2BC 00000000           1761      CMP.L   #0,         D1
+00001F90  6700 004C               1762      BEQ     NEXT_HIT_CHK
+00001F94                          1763      
+00001F94                          1764      ; Get bullet position
+00001F94  2211                    1765      MOVE.L  (A1),       D1          ; Bullet X
+00001F96  2412                    1766      MOVE.L  (A2),       D2          ; Bullet Y
+00001F98                          1767      
+00001F98                          1768      ; Check collision with ship
+00001F98  2639 00002406           1769      MOVE.L  SHIP_X,     D3
+00001F9E  B283                    1770      CMP.L   D3,         D1
+00001FA0  6D00 003C               1771      BLT     NEXT_HIT_CHK
+00001FA4  0683 00000014           1772      ADD.L   #SHIP_W,    D3
+00001FAA  B283                    1773      CMP.L   D3,         D1
+00001FAC  6E00 0030               1774      BGT     NEXT_HIT_CHK
+00001FB0                          1775      
+00001FB0  2639 0000240A           1776      MOVE.L  SHIP_Y,     D3
+00001FB6  B483                    1777      CMP.L   D3,         D2
+00001FB8  6D00 0024               1778      BLT     NEXT_HIT_CHK
+00001FBC  0683 0000000A           1779      ADD.L   #SHIP_H,    D3
+00001FC2  B483                    1780      CMP.L   D3,         D2
+00001FC4  6E00 0018               1781      BGT     NEXT_HIT_CHK
+00001FC8                          1782      
+00001FC8                          1783      ; HIT! Game over
+00001FC8  6100 FC5C               1784      BSR     PLAY_OPPS
+00001FCC  23FC 00000001 00002472  1785      MOVE.L  #1,         GAME_OVER
+00001FD6  20BC 00000000           1786      MOVE.L  #0,         (A0)        ; Deactivate bullet
+00001FDC  4E75                    1787      RTS
+00001FDE                          1788      
+00001FDE                          1789  NEXT_HIT_CHK:
+00001FDE  5888                    1790      ADDA.L  #4,         A0
+00001FE0  5889                    1791      ADDA.L  #4,         A1
+00001FE2  588A                    1792      ADDA.L  #4,         A2
+00001FE4  51CF FFA2               1793      DBRA    D7,         CHK_HIT_LOOP
+00001FE8  4E75                    1794      RTS
+00001FEA                          1795  
+00001FEA                          1796  *-----------------------------------------------------------
+00001FEA                          1797  * Subroutine    : Draw Alien Bullets
+00001FEA                          1798  * Description   : Draw all active alien bullets (cyan)
+00001FEA                          1799  *-----------------------------------------------------------
+00001FEA                          1800  DRAW_ALIEN_BULLETS:
+00001FEA  41F9 0000253E           1801      LEA     ALN_BLT_ACT,A0
+00001FF0  43F9 00002476           1802      LEA     ALN_BLT_X,  A1
+00001FF6  45F9 000024DA           1803      LEA     ALN_BLT_Y,  A2
+00001FFC  7E18                    1804      MOVE.L  #MAX_ALN_BLT-1,D7
+00001FFE                          1805  DRAW_ABL_LOOP:
+00001FFE  2218                    1806      MOVE.L  (A0)+,      D1
+00002000  B2BC 00000000           1807      CMP.L   #0,         D1
+00002006  6700 0020               1808      BEQ     NEXT_ABL_DRAW
+0000200A                          1809      
+0000200A                          1810      ; Set color (Cyan for alien bullets)
+0000200A  223C 00FFFF00           1811      MOVE.L  #CYAN,      D1
+00002010  103C 0050               1812      MOVE.B  #80,        D0
+00002014  4E4F                    1813      TRAP    #15
+00002016                          1814      
+00002016                          1815      ; Draw bullet
+00002016  2211                    1816      MOVE.L  (A1),       D1          ; X
+00002018  2412                    1817      MOVE.L  (A2),       D2          ; Y
+0000201A  2601                    1818      MOVE.L  D1,         D3
+0000201C  5483                    1819      ADD.L   #ALN_BLT_W, D3          ; X + W
+0000201E  2802                    1820      MOVE.L  D2,         D4
+00002020  5C84                    1821      ADD.L   #ALN_BLT_H, D4          ; Y + H
+00002022  103C 0057               1822      MOVE.B  #87,        D0
+00002026  4E4F                    1823      TRAP    #15
+00002028                          1824      
+00002028                          1825  NEXT_ABL_DRAW:
+00002028  5889                    1826      ADDA.L  #4,         A1
+0000202A  588A                    1827      ADDA.L  #4,         A2
+0000202C  51CF FFD0               1828      DBRA    D7,         DRAW_ABL_LOOP
+00002030  4E75                    1829      RTS
+00002032                          1830  
+00002032                          1831  *-----------------------------------------------------------
+00002032                          1832  * Subroutine    : Get Random
+00002032                          1833  * Description   : Improved pseudo-random number generator
+00002032                          1834  *-----------------------------------------------------------
+00002032                          1835  GET_RANDOM:
+00002032  2239 000025A6           1836      MOVE.L  RANDOM_SEED,D1
+00002038  2401                    1837      MOVE.L  D1,         D2
+0000203A  EB8A                    1838      LSL.L   #5,         D2          ; Multiply by 32
+0000203C  D282                    1839      ADD.L   D2,         D1
+0000203E  2401                    1840      MOVE.L  D1,         D2
+00002040  EE8A                    1841      LSR.L   #7,         D2          ; Add some high bits
+00002042  B581                    1842      EOR.L   D2,         D1
+00002044  0681 00003039           1843      ADD.L   #12345,     D1          ; Add constant
+0000204A  23C1 000025A6           1844      MOVE.L  D1,         RANDOM_SEED
+00002050  4E75                    1845      RTS
+00002052                          1846  
+00002052                          1847  *-----------------------------------------------------------
+00002052                          1848  * Subroutine    : Update Slow Motion
+00002052                          1849  * Description   : Check if slow motion should end
+00002052                          1850  *-----------------------------------------------------------
+00002052                          1851  UPDATE_SLOW_MOTION:
+00002052                          1852      ; Check if slow motion is active
+00002052  2239 000025AA           1853      MOVE.L  SLOW_ACTIVE,D1
+00002058  B2BC 00000000           1854      CMP.L   #0,         D1
+0000205E  6700 0036               1855      BEQ     SLOW_UPDATE_DONE
+00002062                          1856      
+00002062                          1857      ; Check if duration has ended
+00002062  103C 0008               1858      MOVE.B  #8,         D0          ; Get current time
+00002066  4E4F                    1859      TRAP    #15
+00002068  2401                    1860      MOVE.L  D1,         D2          ; Current time in D2
+0000206A  2639 000025AE           1861      MOVE.L  SLOW_END_TIME,D3
+00002070  B483                    1862      CMP.L   D3,         D2          ; Current time >= end time?
+00002072  6D00 0022               1863      BLT     SLOW_UPDATE_DONE        ; Not yet
+00002076                          1864      
+00002076                          1865      ; Deactivate slow motion
+00002076  23FC 00000000 000025AA  1866      MOVE.L  #0,         SLOW_ACTIVE
+00002080  23FC 00000000 000025B6  1867      MOVE.L  #0,         SLOW_FRAME
+0000208A                          1868      
+0000208A                          1869      ; Set cooldown ready time = current time + cooldown
+0000208A  0682 000007D0           1870      ADD.L   #SLOW_COOLDOWN,D2
+00002090  23C2 000025B2           1871      MOVE.L  D2,         SLOW_READY_TIME
+00002096                          1872      
+00002096                          1873  SLOW_UPDATE_DONE:
+00002096  4E75                    1874      RTS
+00002098                          1875  
+00002098                          1876  *-----------------------------------------------------------
+00002098                          1877  * Subroutine    : EXIT
+00002098                          1878  * Description   : Exit message and End Game
+00002098                          1879  *-----------------------------------------------------------
+00002098                          1880  EXIT:
+00002098                          1881      ; Show if Exiting is Running
+00002098  103C 000B               1882      MOVE.B  #TC_CURSR_P,D0          ; Set Cursor Position
+0000209C  323C 4004               1883      MOVE.W  #$4004,     D1          ; Col 40, Row 1
+000020A0  4E4F                    1884      TRAP    #15                     ; Trap (Perform action)
+000020A2  43F9 000023F6           1885      LEA     EXIT_MSG,   A1          ; Exit
+000020A8  303C 000D               1886      MOVE    #13,        D0          ; No Line feed
+000020AC  4E4F                    1887      TRAP    #15                     ; Trap (Perform action)
+000020AE  103C 0009               1888      MOVE.B  #TC_EXIT,   D0          ; Exit Code
+000020B2  4E4F                    1889      TRAP    #15                     ; Trap (Perform action)
+000020B4  FFFF FFFF               1890      SIMHALT
+000020B8                          1891  
+000020B8                          1892  *-----------------------------------------------------------
+000020B8                          1893  * Section       : Messages
+000020B8                          1894  * Description   : Messages to Print on Console
+000020B8                          1895  *-----------------------------------------------------------
+000020B8                          1896  ; Title Screen ASCII Art
+000020B8= 20 20 5F 5F 5F 5F ...   1897  TITLE_1     DC.B    '  _____ _            ____                _          ___     ',0
+000020F5= 20 7C 5F 20 20 20 ...   1898  TITLE_2     DC.B    ' |_   _| |__   ___  / ___|_ __ ___  __ _| |_    ___/   \___ ',0
+00002132= 20 20 20 7C 20 7C ...   1899  TITLE_3     DC.B    '   | | | `_ \ / _ \| |  _| `__/ _ \/ _` | __|  /   "---"   \',0
+0000216F= 20 20 20 7C 20 7C ...   1900  TITLE_4     DC.B    '   | | | | | |  __/| |_| | | |  __/ (_| | |_   "--_______--"',0
+000021AC= 20 20 20 7C 5F 7C ...   1901  TITLE_5     DC.B    '   |_| |_| |_|\___| \____|_|  \___|\__,_|\__|       / \     ',0
+000021E9= 20 20 20 20 20 20 ...   1902  TITLE_6     DC.B    '       ____                          _             /   \    ',0
+00002226= 20 20 20 20 20 20 ...   1903  SHIP_ART3   DC.B    '                  === SPACE ADVENTURE ===                   ',0
+00002263= 20 20 20 20 20 20 ...   1904  PRESS_KEY   DC.B    '           >>> PRESS SPACE OR ENTER TO START <<<            ',0
+000022A0= 20 20 20 20 20 20 ...   1905  CONTROLS1   DC.B    '                         CONTROLS:                          ',0
+000022DD= 20 20 20 20 20 20 ...   1906  CONTROLS2   DC.B    '           LEFT/RIGHT - Move Ship | SPACE - Shoot           ',0
+0000231A= 20 20 20 20 20 20 ...   1907  CONTROLS3   DC.B    '                UP - Time Stop | ESC - Exit                 ',0
+00002357                          1908  
+00002357= 53 43 4F 52 45 20 ...   1909  SCORE_MSG       DC.B    'SCORE : ', 0       ; Score Message
+00002360= 57 41 56 45 3A 20 00    1910  WAVE_MSG        DC.B    'WAVE: ', 0          ; Wave Message
+00002367= 5B 55 50 5D 20 53 ...   1911  SLOW_RDY_MSG    DC.B    '[UP] SLOW: READY', 0
+00002378= 5B 55 50 5D 20 53 ...   1912  SLOW_ON_MSG     DC.B    '[UP] SLOW: ACTIVE!', 0
+0000238B= 5B 55 50 5D 20 53 ...   1913  SLOW_CD_MSG     DC.B    '[UP] SLOW CD: ', 0
+0000239A= 2A 2A 2A 20 54 49 ...   1914  TIMESTOP_MSG    DC.B    '*** TIME STOP ABILITY ACTIVATED ***', 0
+000023BE= 2A 2A 2A 20 47 41 ...   1915  GAMEOVER_MSG    DC.B    '*** GAME OVER ***', 0
+000023D0= 46 49 4E 41 4C 20 ...   1916  FINAL_SCORE_MSG DC.B    'FINAL SCORE: ', 0
+000023DE= 50 72 65 73 73 20 ...   1917  RESTART_MSG     DC.B    'Press ESC to play again', 0
+000023F6= 45 78 69 74 69 6E ...   1918  EXIT_MSG        DC.B    'Exiting....', 0
+00002402                          1919  
+00002402                          1920  *-----------------------------------------------------------
+00002402                          1921  * Section       : Graphic Colors
+00002402                          1922  * Description   : Screen Pixel Color
+00002402                          1923  *-----------------------------------------------------------
+00002402  =00FFFFFF               1924  WHITE           EQU     $00FFFFFF
+00002402  =000000FF               1925  RED             EQU     $000000FF
+00002402  =0000FF00               1926  GREEN           EQU     $0000FF00
+00002402  =0000FFFF               1927  YELLOW          EQU     $0000FFFF
+00002402  =00FFFF00               1928  CYAN            EQU     $00FFFF00
+00002402                          1929  
+00002402                          1930  *-----------------------------------------------------------
+00002402                          1931  * Section       : Screen Size
+00002402                          1932  * Description   : Screen Width and Height
+00002402                          1933  *-----------------------------------------------------------
+00002402                          1934  SCREEN_W        DS.W    01  ; Reserve Space for Screen Width
+00002404                          1935  SCREEN_H        DS.W    01  ; Reserve Space for Screen Height
+00002406                          1936  
+00002406                          1937  *-----------------------------------------------------------
+00002406                          1938  * Section       : Player Ship Position
+00002406                          1939  * Description   : Ship position and bullet data
+00002406                          1940  *-----------------------------------------------------------
+00002406                          1941  SHIP_X          DS.L    01  ; Ship X Position
+0000240A                          1942  SHIP_Y          DS.L    01  ; Ship Y Position
+0000240E                          1943  PLAYER_SCORE    DS.L    01  ; Player Score
+00002412                          1944  
+00002412                          1945  BULLET_X        DS.L    01  ; Bullet X Position
+00002416                          1946  BULLET_Y        DS.L    01  ; Bullet Y Position
+0000241A                          1947  BULLET_ACT      DS.L    01  ; Bullet Active (1=yes, 0=no)
+0000241E                          1948  
+0000241E                          1949  *-----------------------------------------------------------
+0000241E                          1950  * Section       : Alien Data
+0000241E                          1951  * Description   : Alien formation position and state
+0000241E                          1952  *-----------------------------------------------------------
+0000241E                          1953  ALIENS_X        DS.L    01  ; Alien formation X position
+00002422                          1954  ALIENS_Y        DS.L    01  ; Alien formation Y position
+00002426                          1955  ALIEN_DIR       DS.L    01  ; Alien direction (1=right, -1=left)
+0000242A                          1956  ALIENS          DS.L    ALIEN_ROWS*ALIEN_COLS  ; Array of alien alive states
+00002472                          1957  
+00002472                          1958  *-----------------------------------------------------------
+00002472                          1959  * Section       : Game State
+00002472                          1960  * Description   : Game over flag (0=playing, 1=lost, 2=won)
+00002472                          1961  *-----------------------------------------------------------
+00002472                          1962  GAME_OVER       DS.L    01  ; Game over flag
+00002476                          1963  
+00002476                          1964  *-----------------------------------------------------------
+00002476                          1965  * Section       : Alien Bullets
+00002476                          1966  * Description   : Alien bullet positions and states
+00002476                          1967  *-----------------------------------------------------------
+00002476                          1968  ALN_BLT_X       DS.L    MAX_ALN_BLT  ; Alien bullet X positions
+000024DA                          1969  ALN_BLT_Y       DS.L    MAX_ALN_BLT  ; Alien bullet Y positions
+0000253E                          1970  ALN_BLT_ACT     DS.L    MAX_ALN_BLT  ; Alien bullet active flags
+000025A2                          1971  ABL_SLOW_CNT    DS.L    01           ; Alien bullet slow motion frame counter
+000025A6                          1972  
+000025A6                          1973  *-----------------------------------------------------------
+000025A6                          1974  * Section       : Random & Timing
+000025A6                          1975  * Description   : Random seed
+000025A6                          1976  *-----------------------------------------------------------
+000025A6                          1977  RANDOM_SEED     DS.L    01  ; Random number seed
+000025AA                          1978  
+000025AA                          1979  *-----------------------------------------------------------
+000025AA                          1980  * Section       : Slow Motion
+000025AA                          1981  * Description   : Slow motion ability state
+000025AA                          1982  *-----------------------------------------------------------
+000025AA                          1983  SLOW_ACTIVE     DS.L    01  ; Is slow motion active? (1=yes, 0=no)
+000025AE                          1984  SLOW_END_TIME   DS.L    01  ; When slow motion ends
+000025B2                          1985  SLOW_READY_TIME DS.L    01  ; When slow motion can be used again
+000025B6                          1986  SLOW_FRAME      DS.L    01  ; Frame counter for slow motion
+000025BA                          1987  
+000025BA                          1988  *-----------------------------------------------------------
+000025BA                          1989  * Section       : Wave System
+000025BA                          1990  * Description   : Infinite wave spawning
+000025BA                          1991  *-----------------------------------------------------------
+000025BA                          1992  WAVE_NUM        DS.L    01  ; Current wave number
+000025BE                          1993  CURRENT_ALIEN_SPD DS.L  01  ; Current alien speed (increases each wave)
+000025C2                          1994  ALIEN_MOVE_CNT  DS.L    01  ; Frame counter for alien movement delay
+000025C6                          1995  
+000025C6                          1996  *-----------------------------------------------------------
+000025C6                          1997  * Section       : Stars
+000025C6                          1998  * Description   : Background stars
+000025C6                          1999  *-----------------------------------------------------------
+000025C6                          2000  STAR_X          DS.L    NUM_STARS  ; Star X positions
+00002666                          2001  STAR_Y          DS.L    NUM_STARS  ; Star Y positions
+00002706                          2002  STAR_BRIGHT     DS.L    NUM_STARS  ; Star brightness (0-2)
+000027A6                          2003  
+000027A6                          2004  *-----------------------------------------------------------
+000027A6                          2005  * Section       : Sounds
+000027A6                          2006  * Description   : Sound files
+000027A6                          2007  *-----------------------------------------------------------
+000027A6= 73 68 6F 6F 74 2E ...   2008  SHOOT_WAV       DC.B    'shoot.wav',0       ; Shoot Sound
+000027B0= 68 69 74 2E 77 61 ...   2009  HIT_WAV         DC.B    'hit.wav',0         ; Hit Sound
+000027B8= 6F 70 70 73 2E 77 ...   2010  OPPS_WAV        DC.B    'opps.wav',0        ; Game Over Sound
+000027C1= 6D 75 73 69 63 2E ...   2011  MUSIC_WAV       DC.B    'music.wav',0       ; Background Music
+000027CB= 74 69 6D 65 66 72 ...   2012  TIMEFREEZE_WAV  DC.B    'timefreeze.wav',0  ; Time Freeze Sound
+000027DA                          2013  
+000027DA                          2014  *-----------------------------------------------------------
+000027DA                          2015  * Section       : Time Stop Message
+000027DA                          2016  * Description   : Timer for displaying time stop message
+000027DA                          2017  *-----------------------------------------------------------
+000027DA                          2018  TIMESTOP_MSG_TIME DS.L  01  ; When to stop showing time stop message
+000027DE                          2019  
+000027DE                          2020      END    START        ; last line of sourcece
+
+No errors detected
+No warnings generated
+
+
+SYMBOL TABLE INFORMATION
+Symbol-name         Value
+-------------------------
+ABL_SLOW_CNT        25A2
+ACTIVATE_SLOW       132E
+ACTIVATE_SLOW_DONE  1386
+ALIENS              242A
+ALIENS_MOVE_DOWN_LEFT  1514
+ALIENS_MOVE_DOWN_RIGHT  1546
+ALIENS_UPDATE_DONE  1564
+ALIENS_X            241E
+ALIENS_Y            2422
+ALIEN_COLS          9
+ALIEN_DIR           2426
+ALIEN_GAP           28
+ALIEN_H             A
+ALIEN_MOVE_CNT      25C2
+ALIEN_MOVE_DELAY    4
+ALIEN_ROWS          2
+ALIEN_SELECTED      1E80
+ALIEN_SHOOT_RANDOM  1E06
+ALIEN_SPD           1
+ALIEN_W             28
+ALN_BLT_ACT         253E
+ALN_BLT_H           6
+ALN_BLT_SPD         1
+ALN_BLT_W           2
+ALN_BLT_X           2476
+ALN_BLT_Y           24DA
+BULLET_ACT          241A
+BULLET_COLL_DONE    1D6A
+BULLET_DRAW_DONE    1950
+BULLET_H            A
+BULLET_OFF          82
+BULLET_SPD          7
+BULLET_UPDATE_DONE  144A
+BULLET_W            3
+BULLET_X            2412
+BULLET_Y            2416
+CHECK_ALIEN_BOUNDS  14E0
+CHECK_ALIEN_BULLET_HIT  1F74
+CHECK_ALIEN_COLL_LOOP  1CB2
+CHECK_ALIEN_REACHED  1D6C
+CHECK_BULLET_COLLISIONS  1C8E
+CHECK_NEXT_WAVE     1D96
+CHECK_WAVE_LOOP     1D9E
+CHK_HIT_LOOP        1F88
+CONTROLS1           22A0
+CONTROLS2           22DD
+CONTROLS3           231A
+COUNT_ALIVE_LOOP    1E24
+COUNT_ALIVE_LOOP:NOT_ALIVE  1E32
+CURRENT_ALIEN_SPD   25BE
+CYAN                FFFF00
+DEACTIVATE_BULLET   1436
+DEACT_ABL           1F64
+DO_ABL_UPDATE       1F32
+DRAW                1566
+DRAW_ABL_LOOP       1FFE
+DRAW_ALIENS         1952
+DRAW_ALIENS_DONE    1AAC
+DRAW_ALIEN_BULLETS  1FEA
+DRAW_ALIEN_LOOP     195A
+DRAW_BULLET         190E
+DRAW_GAME_OVER_MSG  15A0
+DRAW_HUD            15FA
+DRAW_SHIP           16FA
+DRAW_SLOW_ACTIVE    16B2
+DRAW_SLOW_READY     16EC
+DRAW_STARS          1B54
+DRAW_STARS_DONE     1BC2
+DRAW_STAR_LOOP      1B6C
+DRAW_STAR_LOOP:DIM_STAR  1B96
+DRAW_STAR_LOOP:MED_STAR  1BA0
+DRAW_STAR_LOOP:SET_COLOR  1BA6
+DRAW_TITLE_SCREEN   102C
+ESCAPE              1B
+EXIT                2098
+EXIT_MSG            23F6
+FINAL_SCORE_MSG     23D0
+FIND_NTH_ALIEN      1E5E
+FIND_NTH_ALIEN:SKIP_DEAD  1E7C
+FIND_SLOT           1ECE
+FIRE_ALIEN_BULLET   1EBA
+FOUND_SLOT          1EE4
+GAMELOOP            1280
+GAMEOVER_MSG        23BE
+GAME_OVER           2472
+GET_RANDOM          2032
+GREEN               FF00
+HIT_INDEX           1
+HIT_LOAD            1BEE
+HIT_WAV             27B0
+HUD_DONE            16F8
+INITIALISE          1144
+INIT_ABL_LOOP       1DFA
+INIT_ALIENS         125A
+INIT_ALIEN_BULLETS  1DF2
+INIT_ALIEN_LOOP     1264
+INIT_BRIGHT_DONE    1B4E
+INIT_BRIGHT_LOOP    1B30
+INIT_BRIGHT_LOOP:SKIP_RESET  1B4A
+INIT_STARS          1AAE
+INIT_STARS_DONE     1B26
+INIT_STAR_LOOP      1AC4
+INPUT               12C8
+INPUT:NO_ESC        12EC
+KEY_LEFT            25
+KEY_RIGHT           27
+KEY_UP              26
+MAX_ALN_BLT         19
+MOVE_LEFT           1388
+MOVE_LEFT_DONE      13A0
+MOVE_RIGHT          13A2
+MOVE_RIGHT_DONE     13C2
+MUSIC_INDEX         3
+MUSIC_LOAD          1C3A
+MUSIC_WAV           27C1
+NEXT_ABL            1F6A
+NEXT_ABL_DRAW       2028
+NEXT_ALIEN          1AA6
+NEXT_ALIEN_COLL     1D64
+NEXT_HIT_CHK        1FDE
+NO_ALIEN_SHOT       1EB8
+NUM_STARS           28
+OPPS_INDEX          2
+OPPS_LOAD           1C14
+OPPS_WAV            27B8
+PLAYER_SCORE        240E
+PLAY_HIT            1C00
+PLAY_MUSIC          1C4C
+PLAY_OPPS           1C26
+PLAY_SHOOT          1BDA
+PLAY_TIMEFREEZE     1C7A
+POINTS              A
+PRESS_KEY           2263
+RANDOM_SEED         25A6
+RED                 FF
+RESTART_MSG         23DE
+SCORE_MSG           2357
+SCREEN_H            2404
+SCREEN_W            2402
+SCR_HEIGHT          334
+SCR_WIDTH           244
+SET_GAME_OVER       1D86
+SET_NEW_SPEED       1DD4
+SHIP_ART3           2226
+SHIP_H              A
+SHIP_SPEED          1
+SHIP_W              14
+SHIP_X              2406
+SHIP_Y              240A
+SHOOT               13C4
+SHOOT_DONE          1408
+SHOOT_INDEX         0
+SHOOT_LOAD          1BC8
+SHOOT_WAV           27A6
+SHOW_GAME_OVER      12BE
+SKIP_ABL_UPDATE     1F20
+SKIP_ALIEN_MOVE     14D8
+SKIP_NORMAL_MOVE    1496
+SLOW_ACTIVE         25AA
+SLOW_ALIEN_MOVE     149E
+SLOW_CD_MSG         238B
+SLOW_COOLDOWN       7D0
+SLOW_DURATION       1F4
+SLOW_END_TIME       25AE
+SLOW_FACTOR         A
+SLOW_FRAME          25B6
+SLOW_ON_MSG         2378
+SLOW_RDY_MSG        2367
+SLOW_READY_TIME     25B2
+SLOW_UPDATE_DONE    2096
+SPACEBAR            20
+START               1000
+START_SCREEN        1004
+STAR_BRIGHT         2706
+STAR_X              25C6
+STAR_Y              2666
+STOP_MUSIC          1C5A
+TC_CURSR_P          B
+TC_DBL_BUF          5C
+TC_EXIT             9
+TC_KEYCODE          13
+TC_SCREEN           21
+TC_S_SIZE           0
+TIMEFREEZE_INDEX    4
+TIMEFREEZE_LOAD     1C68
+TIMEFREEZE_WAV      27CB
+TIMESTOP_MSG        239A
+TIMESTOP_MSG_TIME   27DA
+TITLE_1             20B8
+TITLE_2             20F5
+TITLE_3             2132
+TITLE_4             216F
+TITLE_5             21AC
+TITLE_6             21E9
+UPDATE_ABL_NORMAL   1F28
+UPDATE_ALIENS       144C
+UPDATE_ALIEN_BULLETS  1EF2
+UPDATE_BULLET       140A
+UPDATE_SLOW_MOTION  2052
+UPD_ABL_LOOP        1F40
+WAIT_FOR_KEY        1118
+WAVE_MSG            2360
+WAVE_NOT_DONE       1DF0
+WAVE_NUM            25BA
+WHITE               FFFFFF
+YELLOW              FFFF
