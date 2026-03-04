@@ -36,7 +36,7 @@ TC_CURSR_P  EQU         11          ; Trap code cursor position
 TC_EXIT     EQU         09          ; Exit Trapcode
 
 *-----------------------------------------------------------
-* Section       : Game Setup
+* Section       : Game loop
 * Description   : Size of Player Ship, Bullet, and Aliens
 *-----------------------------------------------------------
 SHIP_W      EQU         20          ; Ship Width
@@ -61,10 +61,19 @@ SLOW_FACTOR EQU         10          ; Aliens move 10x slower during slow-mo
 
 NUM_STARS   EQU         40          ; Number of stars in background
 
+; Particle system constants
+MAX_PARTICLES EQU       12          ; Max particles per explosion
+PARTICLE_LIFE EQU       20          ; Particle lifetime in frames
+
+; Heart pickup constants
+HEART_SIZE    EQU       14          ; Heart pickup size
+HEART_SPEED   EQU       2           ; Heart fall speed
+MAX_LIVES     EQU       5           ; Maximum lives player can have
+
 ALN_BLT_W   EQU         02          ; Alien bullet width
 ALN_BLT_H   EQU         06          ; Alien bullet height
 ALN_BLT_SPD EQU         01          ; Alien bullet speed (downward)
-MAX_ALN_BLT EQU         04          ; Max alien bullets at once
+MAX_ALN_BLT EQU         25          ; Max alien bullets at once
 
 SHOOT_INDEX EQU         00          ; Shoot Sound Index  
 HIT_INDEX   EQU         01          ; Hit Sound Index  
@@ -233,14 +242,24 @@ WAIT_FOR_KEY:
 * Description   : Initialise game data into memory
 *-----------------------------------------------------------
 INITIALISE:
-    ; Stop the title screen music
+    ; Stop any playing music first
     BSR     STOP_MUSIC
     
     ; Set Graphics Window Size to 520x820
     ; Trap 33: D1 high word = width, D1 low word = height
-    MOVE.L  #$01600334, D1          ; $0208 = 520, $0334 = 820
+    MOVE.L  #$01600334, D1          ; $0160 = 352, $0334 = 820
     MOVE.B  #33,        D0
     TRAP    #15
+    
+    ; Enable the screen back buffer FIRST
+    MOVE.B  #TC_DBL_BUF,D0          ; 92 Enables Double Buffer
+    MOVE.B  #17,        D1          ; Combine Tasks
+    TRAP    #15                     ; Trap (Perform action)
+    
+    ; Clear the screen
+    MOVE.B  #TC_CURSR_P,D0          ; Set Cursor Position
+    MOVE.W  #$FF00,     D1          ; Fill Screen Clear
+    TRAP    #15                     ; Trap (Perform action)
     
     ; Initialise Sounds
     BSR     SHOOT_LOAD              ; Load Shoot Sound into Memory
@@ -285,6 +304,9 @@ INITIALISE:
 
     ; Initialize Game Over flag
     MOVE.L  #0,         GAME_OVER   ; Game is not over
+    
+    ; Initialize player lives
+    MOVE.L  #3,         PLAYER_LIVES ; Start with 3 lives
 
     ; Initialize alien bullets
     BSR     INIT_ALIEN_BULLETS
@@ -298,24 +320,24 @@ INITIALISE:
     MOVE.L  #0,         SLOW_ACTIVE ; Slow motion not active
     MOVE.L  #0,         SLOW_END_TIME ; No end time
     MOVE.L  #0,         SLOW_READY_TIME ; Can use immediately
+    MOVE.L  #0,         SLOW_FRAME  ; Reset slow frame counter
     
     ; Initialize wave system
     MOVE.L  #1,         WAVE_NUM    ; Start at wave 1
     MOVE.L  #ALIEN_SPD, CURRENT_ALIEN_SPD ; Current alien speed
     MOVE.L  #0,         ALIEN_MOVE_CNT ; Alien move frame counter
     
+    ; Reset alien bullet slow counter
+    MOVE.L  #0,         ABL_SLOW_CNT
+    
+    ; Initialize particle system (inactive)
+    MOVE.L  #0,         PART_ACTIVE
+    
+    ; Initialize heart pickup (inactive)
+    MOVE.L  #0,         HEART_ACTIVE
+    
     ; Initialize stars
     BSR     INIT_STARS
-
-    ; Enable the screen back buffer
-    MOVE.B  #TC_DBL_BUF,D0          ; 92 Enables Double Buffer
-    MOVE.B  #17,        D1          ; Combine Tasks
-    TRAP    #15                     ; Trap (Perform action)
-
-    ; Clear the screen
-    MOVE.B  #TC_CURSR_P,D0          ; Set Cursor Position
-    MOVE.W  #$FF00,     D1          ; Fill Screen Clear
-    TRAP    #15                     ; Trap (Perform action)
     
     ; Start game music (loops)
     BSR     MUSIC_LOAD              ; Load music for game
@@ -363,6 +385,8 @@ GAMELOOP:
     BSR     CHECK_ALIEN_BULLET_HIT  ; Check if player is hit
     BSR     CHECK_ALIEN_REACHED     ; Check if aliens reached bottom
     BSR     CHECK_NEXT_WAVE         ; Check if all aliens dead -> spawn next wave
+    BSR     UPDATE_PARTICLES        ; Update explosion particles
+    BSR     UPDATE_HEART_PICKUP     ; Update and check heart pickup
     BSR     DRAW                    ; Draw the Scene
     BRA     GAMELOOP                ; Loop back to GameLoop
 
@@ -372,26 +396,62 @@ GAMELOOP:
 *-----------------------------------------------------------
 SHOW_GAME_OVER:
     BSR     DRAW                    ; Draw final state
-    BSR     INPUT                   ; Still check for escape
+    
+    ; Check for escape to restart
+    MOVE.B  #TC_KEYCODE,D0
+    MOVE.L  #ESCAPE,    D1
+    TRAP    #15
+    BTST    #0,         D1
+    BNE     RESTART_GAME            ; ESC pressed - restart!
+    
+    ; Small delay
+    MOVE.L  #1,         D1
+    MOVE.B  #23,        D0
+    TRAP    #15
+    
     BRA     SHOW_GAME_OVER
+
+RESTART_GAME:
+    ; Wait for ESC key to be released
+.WAIT_ESC_RELEASE:
+    MOVE.B  #TC_KEYCODE,D0
+    MOVE.L  #ESCAPE,    D1
+    TRAP    #15
+    BTST    #0,         D1
+    BNE     .WAIT_ESC_RELEASE       ; Wait until ESC released
+    
+    ; Small delay
+    MOVE.L  #10,        D1
+    MOVE.B  #23,        D0
+    TRAP    #15
+    
+    ; Clear all data registers
+    CLR.L   D0
+    CLR.L   D1
+    CLR.L   D2
+    CLR.L   D3
+    CLR.L   D4
+    CLR.L   D5
+    CLR.L   D6
+    CLR.L   D7
+    
+    ; Reset stack pointer to clean state
+    MOVE.L  #$8000,     SP
+    
+    ; Jump to initialization
+    BRA     INITIALISE              ; Restart the game
 
 *-----------------------------------------------------------
 * Subroutine    : Input
 * Description   : Process Keyboard Input
 *-----------------------------------------------------------
 INPUT:
-    ; Check for escape - restart if game over, exit if playing
+    ; Check for escape to exit (only when playing)
     MOVE.B  #TC_KEYCODE,D0
     MOVE.L  #ESCAPE,    D1
     TRAP    #15
     BTST    #0,         D1
-    BEQ     .NO_ESC
-    
-    ; Check if game is over
-    MOVE.L  GAME_OVER,  D1
-    CMP.L   #0,         D1
-    BEQ     EXIT                    ; Playing - exit game
-    BRA     INITIALISE              ; Game over - restart
+    BNE     EXIT                    ; Exit game
     
 .NO_ESC:
     
@@ -661,6 +721,9 @@ DRAW:
     BSR     DRAW_BULLET             ; Draw Bullet
     BSR     DRAW_ALIENS             ; Draw Aliens
     BSR     DRAW_ALIEN_BULLETS      ; Draw alien bullets
+    BSR     DRAW_LIVES              ; Draw lives (hearts)
+    BSR     DRAW_PARTICLES          ; Draw explosion particles
+    BSR     DRAW_HEART_PICKUP       ; Draw collectible heart
     
     ; Check for game over message
     MOVE.L  GAME_OVER,  D1
@@ -1510,7 +1573,7 @@ BULLET_COLL_DONE:
 
 *-----------------------------------------------------------
 * Subroutine    : Check if aliens reached bottom
-* Description   : Game over if aliens reach ship
+* Description   : Game over if aliens reach ship (instant death)
 *-----------------------------------------------------------
 CHECK_ALIEN_REACHED:
     ; Calculate lowest alien Y position
@@ -1525,6 +1588,7 @@ CHECK_ALIEN_REACHED:
 
 SET_GAME_OVER:
     BSR     PLAY_OPPS
+    MOVE.L  #0,         PLAYER_LIVES ; Lose all lives
     MOVE.L  #1,         GAME_OVER
     RTS
 
@@ -1562,6 +1626,20 @@ SET_NEW_SPEED:
     ; Reset aliens
     BSR     INIT_ALIENS
     
+    ; Spawn heart pickup if player has less than max lives
+    MOVE.L  PLAYER_LIVES,D1
+    CMP.L   #MAX_LIVES,  D1
+    BGE     .NO_HEART_SPAWN
+    
+    ; Spawn heart at random X position near top
+    BSR     GET_RANDOM
+    AND.L   #$1FF,      D1          ; 0-511
+    ADD.L   #50,        D1          ; 50-561
+    MOVE.L  D1,         HEART_X
+    MOVE.L  #60,        HEART_Y     ; Start near top
+    MOVE.L  #1,         HEART_ACTIVE
+    
+.NO_HEART_SPAWN:
     ; Add bonus points for completing wave
     MOVE.L  PLAYER_SCORE,D1
     ADD.L   #50,        D1          ; 50 bonus points per wave
@@ -1576,9 +1654,13 @@ WAVE_NOT_DONE:
 *-----------------------------------------------------------
 INIT_ALIEN_BULLETS:
     LEA     ALN_BLT_ACT,A0
+    LEA     ALN_BLT_X,  A1
+    LEA     ALN_BLT_Y,  A2
     MOVE.L  #MAX_ALN_BLT-1,D7
 INIT_ABL_LOOP:
     MOVE.L  #0,         (A0)+       ; Set inactive
+    MOVE.L  #0,         (A1)+       ; Clear X position
+    MOVE.L  #0,         (A2)+       ; Clear Y position
     DBRA    D7,         INIT_ABL_LOOP
     RTS
 
@@ -1780,10 +1862,25 @@ CHK_HIT_LOOP:
     CMP.L   D3,         D2
     BGT     NEXT_HIT_CHK
     
-    ; HIT! Game over
+    ; HIT! Lose a life
     BSR     PLAY_OPPS
-    MOVE.L  #1,         GAME_OVER
     MOVE.L  #0,         (A0)        ; Deactivate bullet
+    
+    ; Spawn explosion at ship position
+    BSR     SPAWN_EXPLOSION
+    
+    ; Decrement lives
+    MOVE.L  PLAYER_LIVES,D3
+    SUB.L   #1,         D3
+    MOVE.L  D3,         PLAYER_LIVES
+    
+    ; Check if out of lives
+    CMP.L   #0,         D3
+    BLE     .PLAYER_DEAD
+    RTS
+    
+.PLAYER_DEAD:
+    MOVE.L  #1,         GAME_OVER
     RTS
     
 NEXT_HIT_CHK:
@@ -1829,6 +1926,87 @@ NEXT_ABL_DRAW:
     RTS
 
 *-----------------------------------------------------------
+* Subroutine    : Draw Lives
+* Description   : Draw hearts in bottom left corner for lives
+*-----------------------------------------------------------
+DRAW_LIVES:
+    MOVEM.L D0-D7,-(SP)             ; Save registers
+    
+    MOVE.L  PLAYER_LIVES,D7         ; Number of hearts to draw
+    CMP.L   #0,         D7
+    BLE     DRAW_LIVES_DONE         ; No lives to draw
+    
+    MOVE.L  #10,        D6          ; Starting X position
+    MOVE.L  SCREEN_H,   D5
+    CLR.L   D5
+    MOVE.W  SCREEN_H,   D5
+    SUB.L   #25,        D5          ; Y position near bottom
+    
+DRAW_HEART_LOOP:
+    ; Draw a heart shape using multiple rectangles
+    
+    ; Set color to RED for heart
+    MOVE.L  #RED,       D1
+    MOVE.B  #80,        D0
+    TRAP    #15
+    
+    ; Top left bump of heart
+    MOVE.L  D6,         D1          ; X
+    MOVE.L  D5,         D2          ; Y
+    MOVE.L  D1,         D3
+    ADD.L   #6,         D3          ; Width 6
+    MOVE.L  D2,         D4
+    ADD.L   #6,         D4          ; Height 6
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Top right bump of heart
+    MOVE.L  D6,         D1
+    ADD.L   #8,         D1          ; Offset X
+    MOVE.L  D5,         D2          ; Y
+    MOVE.L  D1,         D3
+    ADD.L   #6,         D3          ; Width 6
+    MOVE.L  D2,         D4
+    ADD.L   #6,         D4          ; Height 6
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Middle of heart
+    MOVE.L  D6,         D1
+    ADD.L   #2,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #4,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #10,        D3
+    MOVE.L  D2,         D4
+    ADD.L   #5,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Bottom point of heart
+    MOVE.L  D6,         D1
+    ADD.L   #4,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #8,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #6,         D3
+    MOVE.L  D2,         D4
+    ADD.L   #5,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Move to next heart position
+    ADD.L   #22,        D6          ; Space between hearts
+    
+    SUB.L   #1,         D7
+    CMP.L   #0,         D7
+    BGT     DRAW_HEART_LOOP
+    
+DRAW_LIVES_DONE:
+    MOVEM.L (SP)+,D0-D7             ; Restore registers
+    RTS
+
+*-----------------------------------------------------------
 * Subroutine    : Get Random
 * Description   : Improved pseudo-random number generator
 *-----------------------------------------------------------
@@ -1842,6 +2020,343 @@ GET_RANDOM:
     EOR.L   D2,         D1
     ADD.L   #12345,     D1          ; Add constant
     MOVE.L  D1,         RANDOM_SEED
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Spawn Explosion
+* Description   : Create particles at ship position
+*-----------------------------------------------------------
+SPAWN_EXPLOSION:
+    MOVEM.L D0-D7/A0-A4,-(SP)       ; Save registers
+    
+    ; Set particles as active
+    MOVE.L  #1,         PART_ACTIVE
+    
+    ; Get ship center position
+    MOVE.L  SHIP_X,     D4
+    ADD.L   #SHIP_W/2,  D4          ; Center X
+    MOVE.L  SHIP_Y,     D5
+    ADD.L   #SHIP_H/2,  D5          ; Center Y
+    
+    ; Initialize particle arrays
+    LEA     PART_X,     A0
+    LEA     PART_Y,     A1
+    LEA     PART_VX,    A2
+    LEA     PART_VY,    A3
+    LEA     PART_LIFE,  A4
+    
+    MOVE.L  #MAX_PARTICLES-1,D7
+    
+SPAWN_PART_LOOP:
+    ; Set position to ship center
+    MOVE.L  D4,         (A0)+       ; X = ship center X
+    MOVE.L  D5,         (A1)+       ; Y = ship center Y
+    
+    ; Random X velocity (-4 to +4)
+    BSR     GET_RANDOM
+    AND.L   #$07,       D1          ; 0-7
+    SUB.L   #4,         D1          ; -4 to +3
+    MOVE.L  D1,         (A2)+       ; VX
+    
+    ; Random Y velocity (-5 to +2) - mostly upward
+    BSR     GET_RANDOM
+    AND.L   #$07,       D1          ; 0-7
+    SUB.L   #5,         D1          ; -5 to +2
+    MOVE.L  D1,         (A3)+       ; VY
+    
+    ; Set lifetime
+    MOVE.L  #PARTICLE_LIFE,(A4)+
+    
+    DBRA    D7,         SPAWN_PART_LOOP
+    
+    MOVEM.L (SP)+,D0-D7/A0-A4       ; Restore registers
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Update Particles
+* Description   : Move particles and decrease lifetime
+*-----------------------------------------------------------
+UPDATE_PARTICLES:
+    ; Check if particles are active
+    MOVE.L  PART_ACTIVE,D0
+    CMP.L   #0,         D0
+    BEQ     UPDATE_PART_DONE
+    
+    MOVEM.L D0-D7/A0-A4,-(SP)       ; Save registers
+    
+    LEA     PART_X,     A0
+    LEA     PART_Y,     A1
+    LEA     PART_VX,    A2
+    LEA     PART_VY,    A3
+    LEA     PART_LIFE,  A4
+    
+    MOVE.L  #MAX_PARTICLES-1,D7
+    MOVE.L  #0,         D6          ; Count active particles
+    
+UPDATE_PART_LOOP:
+    ; Check if this particle is alive
+    MOVE.L  (A4),       D0
+    CMP.L   #0,         D0
+    BLE     NEXT_PARTICLE
+    
+    ; Particle is alive, count it
+    ADD.L   #1,         D6
+    
+    ; Update position: X += VX, Y += VY
+    MOVE.L  (A0),       D1          ; X
+    ADD.L   (A2),       D1          ; X += VX
+    MOVE.L  D1,         (A0)
+    
+    MOVE.L  (A1),       D2          ; Y
+    ADD.L   (A3),       D2          ; Y += VY
+    MOVE.L  D2,         (A1)
+    
+    ; Add gravity (increase VY slightly)
+    MOVE.L  (A3),       D1
+    ADD.L   #1,         D1          ; Gravity pulls down
+    MOVE.L  D1,         (A3)
+    
+    ; Decrease lifetime
+    MOVE.L  (A4),       D0
+    SUB.L   #1,         D0
+    MOVE.L  D0,         (A4)
+    
+NEXT_PARTICLE:
+    ADDA.L  #4,         A0
+    ADDA.L  #4,         A1
+    ADDA.L  #4,         A2
+    ADDA.L  #4,         A3
+    ADDA.L  #4,         A4
+    DBRA    D7,         UPDATE_PART_LOOP
+    
+    ; If no particles alive, deactivate system
+    CMP.L   #0,         D6
+    BGT     .STILL_ACTIVE
+    MOVE.L  #0,         PART_ACTIVE
+.STILL_ACTIVE:
+    
+    MOVEM.L (SP)+,D0-D7/A0-A4       ; Restore registers
+    
+UPDATE_PART_DONE:
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Draw Particles
+* Description   : Draw active explosion particles
+*-----------------------------------------------------------
+DRAW_PARTICLES:
+    ; Check if particles are active
+    MOVE.L  PART_ACTIVE,D0
+    CMP.L   #0,         D0
+    BEQ     DRAW_PART_DONE
+    
+    MOVEM.L D0-D7/A0-A2,-(SP)       ; Save registers
+    
+    LEA     PART_X,     A0
+    LEA     PART_Y,     A1
+    LEA     PART_LIFE,  A2
+    
+    MOVE.L  #MAX_PARTICLES-1,D7
+    
+DRAW_PART_LOOP:
+    ; Check if particle is alive
+    MOVE.L  (A2)+,      D0
+    CMP.L   #0,         D0
+    BLE     NEXT_DRAW_PART
+    
+    ; Set color based on lifetime (yellow -> orange -> red)
+    CMP.L   #15,        D0
+    BGT     .COLOR_YELLOW
+    CMP.L   #8,         D0
+    BGT     .COLOR_ORANGE
+    
+    ; Red (dying)
+    MOVE.L  #$000000FF, D1
+    BRA     .SET_PART_COLOR
+    
+.COLOR_ORANGE:
+    MOVE.L  #$000080FF, D1          ; Orange
+    BRA     .SET_PART_COLOR
+    
+.COLOR_YELLOW:
+    MOVE.L  #YELLOW,    D1          ; Yellow (fresh)
+    
+.SET_PART_COLOR:
+    MOVE.B  #80,        D0
+    TRAP    #15
+    
+    ; Get particle position
+    MOVE.L  (A0),       D1          ; X
+    MOVE.L  (A1),       D2          ; Y
+    
+    ; Draw small square (3x3)
+    MOVE.L  D1,         D3
+    ADD.L   #3,         D3          ; X + 3
+    MOVE.L  D2,         D4
+    ADD.L   #3,         D4          ; Y + 3
+    
+    MOVE.B  #87,        D0          ; Draw filled rectangle
+    TRAP    #15
+    
+NEXT_DRAW_PART:
+    ADDA.L  #4,         A0
+    ADDA.L  #4,         A1
+    DBRA    D7,         DRAW_PART_LOOP
+    
+    MOVEM.L (SP)+,D0-D7/A0-A2       ; Restore registers
+    
+DRAW_PART_DONE:
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Update Heart Pickup
+* Description   : Move heart down and check for player collision
+*-----------------------------------------------------------
+UPDATE_HEART_PICKUP:
+    ; Check if heart is active
+    MOVE.L  HEART_ACTIVE,D0
+    CMP.L   #0,         D0
+    BEQ     HEART_UPDATE_DONE
+    
+    ; Move heart down
+    MOVE.L  HEART_Y,    D1
+    ADD.L   #HEART_SPEED,D1
+    MOVE.L  D1,         HEART_Y
+    
+    ; Check if heart went off screen
+    CLR.L   D2
+    MOVE.W  SCREEN_H,   D2
+    CMP.L   D2,         D1
+    BGE     HEART_OFF_SCREEN
+    
+    ; Check collision with player ship
+    MOVE.L  HEART_X,    D1          ; Heart X
+    MOVE.L  HEART_Y,    D2          ; Heart Y
+    
+    ; Check X overlap
+    MOVE.L  SHIP_X,     D3
+    SUB.L   #HEART_SIZE,D3          ; Ship left - heart size
+    CMP.L   D3,         D1
+    BLT     HEART_UPDATE_DONE
+    
+    MOVE.L  SHIP_X,     D3
+    ADD.L   #SHIP_W,    D3          ; Ship right
+    CMP.L   D3,         D1
+    BGT     HEART_UPDATE_DONE
+    
+    ; Check Y overlap
+    MOVE.L  SHIP_Y,     D3
+    SUB.L   #HEART_SIZE,D3          ; Ship top - heart size
+    CMP.L   D3,         D2
+    BLT     HEART_UPDATE_DONE
+    
+    MOVE.L  SHIP_Y,     D3
+    ADD.L   #SHIP_H,    D3          ; Ship bottom
+    CMP.L   D3,         D2
+    BGT     HEART_UPDATE_DONE
+    
+    ; Collision! Pick up the heart
+    BSR     PLAY_HIT                ; Play sound
+    MOVE.L  #0,         HEART_ACTIVE ; Deactivate heart
+    
+    ; Add a life (max 5)
+    MOVE.L  PLAYER_LIVES,D1
+    CMP.L   #MAX_LIVES, D1
+    BGE     HEART_UPDATE_DONE       ; Already at max
+    ADD.L   #1,         D1
+    MOVE.L  D1,         PLAYER_LIVES
+    BRA     HEART_UPDATE_DONE
+    
+HEART_OFF_SCREEN:
+    MOVE.L  #0,         HEART_ACTIVE ; Deactivate heart
+    
+HEART_UPDATE_DONE:
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Draw Heart Pickup
+* Description   : Draw the collectible heart (pink, pulsing)
+*-----------------------------------------------------------
+DRAW_HEART_PICKUP:
+    ; Check if heart is active
+    MOVE.L  HEART_ACTIVE,D0
+    CMP.L   #0,         D0
+    BEQ     DRAW_HEART_PICKUP_DONE
+    
+    MOVEM.L D0-D7,-(SP)             ; Save registers
+    
+    MOVE.L  HEART_X,    D6          ; Heart X
+    MOVE.L  HEART_Y,    D5          ; Heart Y
+    
+    ; Set color to pink/magenta for pickup heart
+    MOVE.L  #$00FF88FF, D1          ; Pink color
+    MOVE.B  #80,        D0
+    TRAP    #15
+    
+    ; Top left bump of heart
+    MOVE.L  D6,         D1          ; X
+    MOVE.L  D5,         D2          ; Y
+    MOVE.L  D1,         D3
+    ADD.L   #6,         D3          ; Width 6
+    MOVE.L  D2,         D4
+    ADD.L   #6,         D4          ; Height 6
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Top right bump of heart
+    MOVE.L  D6,         D1
+    ADD.L   #8,         D1          ; Offset X
+    MOVE.L  D5,         D2          ; Y
+    MOVE.L  D1,         D3
+    ADD.L   #6,         D3          ; Width 6
+    MOVE.L  D2,         D4
+    ADD.L   #6,         D4          ; Height 6
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Middle of heart
+    MOVE.L  D6,         D1
+    ADD.L   #2,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #4,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #10,        D3
+    MOVE.L  D2,         D4
+    ADD.L   #5,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Bottom point of heart
+    MOVE.L  D6,         D1
+    ADD.L   #4,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #8,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #6,         D3
+    MOVE.L  D2,         D4
+    ADD.L   #5,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Add white highlight for shine effect
+    MOVE.L  #WHITE,     D1
+    MOVE.B  #80,        D0
+    TRAP    #15
+    
+    MOVE.L  D6,         D1
+    ADD.L   #2,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #2,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #2,         D3
+    MOVE.L  D2,         D4
+    ADD.L   #2,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    MOVEM.L (SP)+,D0-D7             ; Restore registers
+    
+DRAW_HEART_PICKUP_DONE:
     RTS
 
 *-----------------------------------------------------------
@@ -1960,6 +2475,7 @@ ALIENS          DS.L    ALIEN_ROWS*ALIEN_COLS  ; Array of alien alive states
 * Description   : Game over flag (0=playing, 1=lost, 2=won)
 *-----------------------------------------------------------
 GAME_OVER       DS.L    01  ; Game over flag
+PLAYER_LIVES    DS.L    01  ; Player lives (starts at 3)
 
 *-----------------------------------------------------------
 * Section       : Alien Bullets
@@ -2017,10 +2533,25 @@ TIMEFREEZE_WAV  DC.B    'timefreeze.wav',0  ; Time Freeze Sound
 *-----------------------------------------------------------
 TIMESTOP_MSG_TIME DS.L  01  ; When to stop showing time stop message
 
+*-----------------------------------------------------------
+* Section       : Particle System
+* Description   : Explosion particles
+*-----------------------------------------------------------
+PART_X          DS.L    MAX_PARTICLES  ; Particle X positions
+PART_Y          DS.L    MAX_PARTICLES  ; Particle Y positions
+PART_VX         DS.L    MAX_PARTICLES  ; Particle X velocities
+PART_VY         DS.L    MAX_PARTICLES  ; Particle Y velocities
+PART_LIFE       DS.L    MAX_PARTICLES  ; Particle remaining lifetime
+PART_ACTIVE     DS.L    01             ; Are particles active?
+
+*-----------------------------------------------------------
+* Section       : Heart Pickup
+* Description   : Collectible heart for extra life
+*-----------------------------------------------------------
+HEART_X         DS.L    01             ; Heart X position
+HEART_Y         DS.L    01             ; Heart Y position
+HEART_ACTIVE    DS.L    01             ; Is heart pickup active?
+
     END    START        ; last line of sourcece
 
 
-*~Font name~Courier New~
-*~Font size~10~
-*~Tab type~1~
-*~Tab size~4~
