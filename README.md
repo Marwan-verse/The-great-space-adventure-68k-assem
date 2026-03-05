@@ -37,6 +37,10 @@ try to beat the current top score of 1260.
 - Sound effects and music
 
 
+## flowchart
+
+![flow chart](20260305_175529.jpg)
+
 ## current settings
 
 SHIP_W      EQU         20          ; Ship Width
