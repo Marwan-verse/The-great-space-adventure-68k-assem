@@ -2,6 +2,10 @@
 
 ![Gameplay Screenshot 1](POSTER.jpg)
 
+## Trailer
+
+[https://youtu.be/X13U2M3_ZVo](https://youtu.be/2ioF7Cn5g0g)
+
 A Space Invaders recreation written in 68k assembly.
 
 This project recreates classic arcade-style alien waves with a custom Time Stop ability, background stars, and sound effects for shooting, hits, and special moments. It is a small retro game project focused on low-level gameplay logic and fast arcade action.
@@ -104,9 +108,6 @@ BULLET_OFF  EQU         130         ; Bullet off-screen Y position
 SCR_WIDTH   EQU         600         ; Screen width
 SCR_HEIGHT  EQU         920         ; Screen height
 
-## Trailer
-
-https://youtu.be/X13U2M3_ZVo
 
 ## Screenshots
 
