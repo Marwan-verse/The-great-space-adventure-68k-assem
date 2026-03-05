@@ -36,7 +36,7 @@ TC_CURSR_P  EQU         11          ; Trap code cursor position
 TC_EXIT     EQU         09          ; Exit Trapcode
 
 *-----------------------------------------------------------
-* Section       : Game loop
+* Section       : Game settings
 * Description   : Size of Player Ship, Bullet, and Aliens
 *-----------------------------------------------------------
 SHIP_W      EQU         20          ; Ship Width
@@ -46,6 +46,7 @@ SHIP_SPEED  EQU         01          ; Ship Movement Speed
 BULLET_W    EQU         3           ; Bullet Width
 BULLET_H    EQU         10          ; Bullet Height
 BULLET_SPD  EQU         07          ; Bullet Speed (upward)
+MAX_BULLETS EQU         8           ; Max player bullets on screen
 
 ALIEN_W     EQU         40          ; Alien Width
 ALIEN_H     EQU         10          ; Alien Height
@@ -70,21 +71,42 @@ HEART_SIZE    EQU       14          ; Heart pickup size
 HEART_SPEED   EQU       2           ; Heart fall speed
 MAX_LIVES     EQU       5           ; Maximum lives player can have
 
+; Mystery Box configuration
+MYSTERY_SIZE    EQU     20          ; Mystery box size
+MYSTERY_SPEED   EQU     1          ; Mystery box fall speed
+MYSTERY_SPAWN_CHANCE EQU 70         ; Chance to spawn (lower = more rare)
+
+; Wave Attack ability configuration
+WAVE_DURATION   EQU     1000        ; Wave attack lasts 10 seconds (in hundredths)
+WAVE_WIDTH      EQU     50          ; Wave attack bullet width (adjustable)
+WAVE_HEIGHT     EQU     3          ; Wave attack bullet height (adjustable)
+
+; Rapid Fire + Speed ability configuration
+RAPID_DURATION  EQU     600         ; Rapid fire lasts 6 seconds (in hundredths)
+RAPID_SHIP_SPEED EQU    4           ; Ship speed during rapid fire (3x normal)
+RAPID_COOLDOWN  EQU     15           ; Frames between rapid fire shots
+
+; Weapon Malfunction (negative event) configuration
+MALFUNC_CHANCE  EQU     1           ; 1% chance on alien kill
+MALFUNC_DURATION EQU    500        ; Malfunction lasts 5 seconds (in hundredths)
+MALFUNC_BLT_SPD EQU     2           ; Bullet speed during malfunction (half)
+
 ALN_BLT_W   EQU         02          ; Alien bullet width
 ALN_BLT_H   EQU         06          ; Alien bullet height
 ALN_BLT_SPD EQU         01          ; Alien bullet speed (downward)
-MAX_ALN_BLT EQU         25          ; Max alien bullets at once
+MAX_ALN_BLT EQU         20          ; Max alien bullets at once
 
 SHOOT_INDEX EQU         00          ; Shoot Sound Index  
 HIT_INDEX   EQU         01          ; Hit Sound Index  
 OPPS_INDEX  EQU         02          ; Game Over Sound Index
 MUSIC_INDEX EQU         03          ; Music Sound Index
 TIMEFREEZE_INDEX EQU    04          ; Time Freeze Sound Index
+WAVESHOOT_INDEX EQU     05          ; Wave Shoot Sound Index
 
 BULLET_OFF  EQU         130         ; Bullet off-screen Y position
 
-SCR_WIDTH   EQU         580         ; Screen width
-SCR_HEIGHT  EQU         820         ; Screen height
+SCR_WIDTH   EQU         600         ; Screen width
+SCR_HEIGHT  EQU         920         ; Screen height
 
 *-----------------------------------------------------------
 * Section       : Game Stats
@@ -108,7 +130,7 @@ ESCAPE      EQU         $1B         ; Escape ASCII Keycode
 *-----------------------------------------------------------
 START_SCREEN:
     ; Set Graphics Window Size
-    MOVE.L  #$02080334, D1          ; $0208 = 520, $0334 = 820
+    MOVE.L  #$02580398, D1          ; $0258 = 600, $0398 = 920
     MOVE.B  #33,        D0
     TRAP    #15
     
@@ -245,9 +267,9 @@ INITIALISE:
     ; Stop any playing music first
     BSR     STOP_MUSIC
     
-    ; Set Graphics Window Size to 520x820
+    ; Set Graphics Window Size to 600x920
     ; Trap 33: D1 high word = width, D1 low word = height
-    MOVE.L  #$01600334, D1          ; $0160 = 352, $0334 = 820
+    MOVE.L  #$02580398, D1          ; $0258 = 600, $0398 = 920
     MOVE.B  #33,        D0
     TRAP    #15
     
@@ -286,12 +308,8 @@ INITIALISE:
     SUB.L   #30,        D1          ; Place ship near bottom
     MOVE.L  D1,         SHIP_Y      ; Ship Y Position
 
-    ; Initialise Bullet (off screen)
-    MOVE.L  #BULLET_OFF,BULLET_Y    ; Bullet starts off screen
-    MOVE.L  #0,         BULLET_X    ; Bullet X position
-
-    ; Initialize Bullet Active Flag
-    MOVE.L  #0,         BULLET_ACT  ; Bullet not active
+    ; Initialise All Bullets (off screen and inactive)
+    BSR     INIT_BULLETS            ; Initialize all bullet slots
 
     ; Initialise Player Score
     MOVE.L  #0,         PLAYER_SCORE
@@ -336,14 +354,50 @@ INITIALISE:
     ; Initialize heart pickup (inactive)
     MOVE.L  #0,         HEART_ACTIVE
     
+    ; Initialize mystery box (inactive)
+    MOVE.L  #0,         MYSTERY_ACTIVE
+    
+    ; Initialize power-up abilities (inactive)
+    MOVE.L  #0,         WAVE_ACTIVE
+    MOVE.L  #0,         WAVE_END_TIME
+    MOVE.L  #0,         RAPID_ACTIVE
+    MOVE.L  #0,         RAPID_END_TIME
+    MOVE.L  #0,         RAPID_SHOOT_CNT
+    MOVE.L  #0,         ABILITY_MSG_TIME
+    MOVE.L  #0,         CURRENT_ABILITY
+    
+    ; Initialize weapon malfunction (inactive)
+    MOVE.L  #0,         MALFUNC_ACTIVE
+    MOVE.L  #0,         MALFUNC_END_TIME
+    
     ; Initialize stars
     BSR     INIT_STARS
+    
+    ; Load wave shoot sound
+    BSR     WAVESHOOT_LOAD
     
     ; Start game music (loops)
     BSR     MUSIC_LOAD              ; Load music for game
     BSR     PLAY_MUSIC              ; Play music in loop
     
     BRA     GAMELOOP                ; Start the game loop
+
+*-----------------------------------------------------------
+* Subroutine    : Init Bullets
+* Description   : Initialize all bullet slots (inactive)
+*-----------------------------------------------------------
+INIT_BULLETS:
+    LEA     BULLET_X,   A0          ; Bullet X array
+    LEA     BULLET_Y,   A1          ; Bullet Y array
+    LEA     BULLET_ACT, A2          ; Bullet Active array
+    MOVE.L  #MAX_BULLETS-1,D7       ; Loop counter
+INIT_BLT_LP:
+    MOVE.L  #0,         (A0)+       ; X = 0
+    MOVE.L  #BULLET_OFF,(A1)+       ; Y = off screen
+    MOVE.L  #0,         (A2)+       ; Not active
+    DBRA    D7,         INIT_BLT_LP
+    MOVE.L  #0,         SHOOT_DELAY ; Reset shoot delay
+    RTS
 
 *-----------------------------------------------------------
 * Subroutine    : Init Aliens
@@ -374,6 +428,9 @@ GAMELOOP:
 
     ; Update slow motion timer
     BSR     UPDATE_SLOW_MOTION
+    
+    ; Update power-up ability timers
+    BSR     UPDATE_ABILITIES
 
     ; Main Gameloop
     BSR     INPUT                   ; Check Keyboard Input
@@ -387,6 +444,7 @@ GAMELOOP:
     BSR     CHECK_NEXT_WAVE         ; Check if all aliens dead -> spawn next wave
     BSR     UPDATE_PARTICLES        ; Update explosion particles
     BSR     UPDATE_HEART_PICKUP     ; Update and check heart pickup
+    BSR     UPDATE_MYSTERY_BOX      ; Update and check mystery box pickup
     BSR     DRAW                    ; Draw the Scene
     BRA     GAMELOOP                ; Loop back to GameLoop
 
@@ -413,12 +471,12 @@ SHOW_GAME_OVER:
 
 RESTART_GAME:
     ; Wait for ESC key to be released
-.WAIT_ESC_RELEASE:
+WT_ESC_REL:
     MOVE.B  #TC_KEYCODE,D0
     MOVE.L  #ESCAPE,    D1
     TRAP    #15
     BTST    #0,         D1
-    BNE     .WAIT_ESC_RELEASE       ; Wait until ESC released
+    BNE     WT_ESC_REL              ; Wait until ESC released
     
     ; Small delay
     MOVE.L  #10,        D1
@@ -453,7 +511,7 @@ INPUT:
     BTST    #0,         D1
     BNE     EXIT                    ; Exit game
     
-.NO_ESC:
+NO_ESC_IN:
     
     ; Check for up arrow (slow motion)
     MOVE.B  #TC_KEYCODE,D0
@@ -527,11 +585,19 @@ ACTIVATE_SLOW_DONE:
 
 *-----------------------------------------------------------
 * Subroutine    : Move Left
-* Description   : Move ship left
+* Description   : Move ship left (faster with rapid fire active)
 *-----------------------------------------------------------
 MOVE_LEFT:
     MOVE.L  SHIP_X,     D1
-    SUB.L   #SHIP_SPEED,D1
+    ; Check if rapid fire is active for speed boost
+    MOVE.L  RAPID_ACTIVE,D2
+    CMP.L   #1,         D2
+    BNE     NORM_L_SPD
+    SUB.L   #RAPID_SHIP_SPEED,D1    ; Fast speed
+    BRA     CHK_L_EDGE
+NORM_L_SPD:
+    SUB.L   #SHIP_SPEED,D1          ; Normal speed
+CHK_L_EDGE:
     CMP.L   #0,         D1          ; Don't go past left edge
     BLE     MOVE_LEFT_DONE
     MOVE.L  D1,         SHIP_X
@@ -540,69 +606,197 @@ MOVE_LEFT_DONE:
 
 *-----------------------------------------------------------
 * Subroutine    : Move Right  
-* Description   : Move ship right
+* Description   : Move ship right (faster with rapid fire active)
 *-----------------------------------------------------------
 MOVE_RIGHT:
     MOVE.L  SHIP_X,     D1
-    ADD.L   #SHIP_SPEED,D1
+    ; Check if rapid fire is active for speed boost
+    MOVE.L  RAPID_ACTIVE,D2
+    CMP.L   #1,         D2
+    BNE     NORM_R_SPD
+    ADD.L   #RAPID_SHIP_SPEED,D1    ; Fast speed
+    BRA     CHK_R_EDGE
+NORM_R_SPD:
+    ADD.L   #SHIP_SPEED,D1          ; Normal speed
+CHK_R_EDGE:
     MOVE.L  #SCR_WIDTH, D2
     SUB.L   #SHIP_W,    D2          ; Right edge (screen width - ship width)
     CMP.L   D2,         D1
-    BGE     MOVE_RIGHT_DONE
+    BGT     MOVE_RIGHT_DONE         ; Only stop if past right edge
     MOVE.L  D1,         SHIP_X
 MOVE_RIGHT_DONE:
     RTS
 
 *-----------------------------------------------------------
 * Subroutine    : Shoot
-* Description   : Fire bullet from ship
+* Description   : Fire bullet from ship (with ability support)
+*                 Now supports multiple bullets on screen
 *-----------------------------------------------------------
 SHOOT:
-    ; Only shoot if bullet not active
-    MOVE.L  BULLET_ACT, D1
-    CMP.L   #1,         D1
-    BEQ     SHOOT_DONE              ; Already active, skip
+    ; Check if rapid fire is active
+    MOVE.L  RAPID_ACTIVE,D2
+    CMP.L   #1,         D2
+    BNE     CHK_NORM_SH
     
-    ; Fire new bullet
-    BSR     PLAY_SHOOT              ; Play shoot sound
-    MOVE.L  #1,         BULLET_ACT  ; Set bullet active
+    ; Rapid fire mode - allow shooting with short cooldown
+    MOVE.L  SHOOT_DELAY,D1
+    CMP.L   #RAPID_COOLDOWN,D1
+    BLT     INC_SH_DLY              ; Still in cooldown
+    BRA     FIND_SLOT
+    
+CHK_NORM_SH:
+    ; Normal mode - only allow 1 bullet on screen at a time
+    ; Check if any bullets are currently active
+    LEA     BULLET_ACT, A0
+    MOVE.L  #0,         D7
+CHK_ANY_ACT:
+    CMP.L   #MAX_BULLETS,D7
+    BGE     FIND_SLOT               ; No active bullets, can shoot
+    MOVE.L  (A0)+,      D1
+    CMP.L   #1,         D1
+    BEQ     SHOOT_DONE              ; Found active bullet, can't shoot
+    ADD.L   #1,         D7
+    BRA     CHK_ANY_ACT
+    
+INC_SH_DLY:
+    ADD.L   #1,         D1
+    MOVE.L  D1,         SHOOT_DELAY
+    RTS
+    
+FIND_SLOT:
+    ; Find an empty bullet slot
+    LEA     BULLET_ACT, A0
+    MOVE.L  #0,         D7          ; Slot counter
+FIND_SL_LP:
+    CMP.L   #MAX_BULLETS,D7
+    BGE     SHOOT_DONE              ; No empty slots
+    
+    MOVE.L  (A0),       D1
+    CMP.L   #0,         D1
+    BEQ     FOUND_SLOT              ; Found empty slot
+    
+    ADDA.L  #4,         A0
+    ADD.L   #1,         D7
+    BRA     FIND_SL_LP
+    
+FOUND_SLOT:
+    ; D7 = slot index, A0 points to BULLET_ACT[slot]
+    ; Reset shoot delay
+    MOVE.L  #0,         SHOOT_DELAY
+    
+    ; Play appropriate sound
+    MOVE.L  WAVE_ACTIVE,D2
+    CMP.L   #1,         D2
+    BNE     NORM_SH_SND
+    BSR     PLAY_WAVESHOOT
+    BRA     SH_CONTIN
+NORM_SH_SND:
+    BSR     PLAY_SHOOT
+SH_CONTIN:
+    ; Set bullet active
+    MOVE.L  #1,         (A0)        ; BULLET_ACT[slot] = 1
+    
+    ; Calculate X position offset for this bullet slot
+    MOVE.L  D7,         D6
+    MULU    #4,         D6          ; Byte offset
     
     ; Position bullet at center of ship
     MOVE.L  SHIP_X,     D1
     ADD.L   #SHIP_W/2,  D1
-    SUB.L   #BULLET_W/2,D1
-    MOVE.L  D1,         BULLET_X
     
+    ; Adjust for wave attack width or normal bullet width
+    MOVE.L  WAVE_ACTIVE,D2
+    CMP.L   #1,         D2
+    BNE     NORM_BL_POS
+    SUB.L   #WAVE_WIDTH/2,D1
+    BRA     SET_BLT_X
+NORM_BL_POS:
+    SUB.L   #BULLET_W/2,D1
+SET_BLT_X:
+    LEA     BULLET_X,   A1
+    ADDA.L  D6,         A1
+    MOVE.L  D1,         (A1)        ; BULLET_X[slot] = X
+    
+    ; Calculate Y position
     MOVE.L  SHIP_Y,     D1
+    MOVE.L  WAVE_ACTIVE,D2
+    CMP.L   #1,         D2
+    BNE     NORM_BLT_H
+    SUB.L   #WAVE_HEIGHT,D1
+    BRA     SET_BLT_Y
+NORM_BLT_H:
     SUB.L   #BULLET_H,  D1
-    MOVE.L  D1,         BULLET_Y
+SET_BLT_Y:
+    LEA     BULLET_Y,   A1
+    ADDA.L  D6,         A1
+    MOVE.L  D1,         (A1)        ; BULLET_Y[slot] = Y
     
 SHOOT_DONE:
     RTS
 
 *-----------------------------------------------------------
 * Subroutine    : Update Bullet
-* Description   : Move bullet upward
+* Description   : Move all active bullets upward
 *-----------------------------------------------------------
 UPDATE_BULLET:
-    ; Check if bullet is active
-    MOVE.L  BULLET_ACT, D1
+    LEA     BULLET_ACT, A0          ; Active flags array
+    LEA     BULLET_Y,   A1          ; Y positions array
+    LEA     BULLET_X,   A2          ; X positions array (for malfunction spread)
+    MOVE.L  #0,         D7          ; Bullet counter
+    
+UPD_BLT_LP:
+    CMP.L   #MAX_BULLETS,D7
+    BGE     BULLET_UPDATE_DONE
+    
+    ; Check if this bullet is active
+    MOVE.L  (A0),       D1
     CMP.L   #0,         D1
-    BEQ     BULLET_UPDATE_DONE      ; Not active, skip
+    BEQ     NEXT_UPD_BLT            ; Not active, skip
     
-    ; Move bullet up
-    MOVE.L  BULLET_Y,   D1
+    ; Determine bullet speed (half speed during malfunction)
+    MOVE.L  MALFUNC_ACTIVE,D2
+    CMP.L   #1,         D2
+    BNE     NORM_BL_SPD
+    
+    ; Malfunction - slow bullets and random spread
+    MOVE.L  (A1),       D1          ; Get Y position
+    SUB.L   #MALFUNC_BLT_SPD,D1     ; Half speed
+    MOVE.L  D1,         (A1)
+    
+    ; Add random X spread (wobble)
+    MOVE.L  RANDOM_SEED,D3
+    MULU    #31,        D3
+    ADD.L   #7,         D3
+    MOVE.L  D3,         RANDOM_SEED
+    AND.L   #$03,       D3          ; 0-3
+    SUB.L   #1,         D3          ; -1 to 2
+    MOVE.L  (A2),       D4          ; Get X
+    ADD.L   D3,         D4          ; Add wobble
+    MOVE.L  D4,         (A2)        ; Store X
+    BRA     CHK_BL_OFF
+    
+NORM_BL_SPD:
+    ; Normal speed
+    MOVE.L  (A1),       D1          ; Get Y position
     SUB.L   #BULLET_SPD,D1
-    MOVE.L  D1,         BULLET_Y
+    MOVE.L  D1,         (A1)        ; Store new Y
     
+CHK_BL_OFF:
     ; Check if bullet went off screen
     CMP.L   #0,         D1
-    BLE     DEACTIVATE_BULLET
-    BRA     BULLET_UPDATE_DONE
+    BLE     DEACT_BLT
+    BRA     NEXT_UPD_BLT
 
-DEACTIVATE_BULLET:
-    MOVE.L  #0,         BULLET_ACT
-    MOVE.L  #BULLET_OFF,BULLET_Y
+DEACT_BLT:
+    MOVE.L  #0,         (A0)        ; Deactivate bullet
+    MOVE.L  #BULLET_OFF,(A1)        ; Move off screen
+    
+NEXT_UPD_BLT:
+    ADDA.L  #4,         A0          ; Next active flag
+    ADDA.L  #4,         A1          ; Next Y position
+    ADDA.L  #4,         A2          ; Next X position
+    ADD.L   #1,         D7
+    BRA     UPD_BLT_LP
     
 BULLET_UPDATE_DONE:
     RTS
@@ -696,7 +890,7 @@ ALIENS_MOVE_DOWN_RIGHT:
     MOVE.L  #1,         ALIEN_DIR   ; Change direction to right
     ADD.L   #15,        ALIENS_Y    ; Move down
     ; Push aliens back inside boundary
-    MOVE.L  #35,        ALIENS_X
+    MOVE.L  #15,        ALIENS_X
     
 ALIENS_UPDATE_DONE:
     RTS
@@ -724,6 +918,8 @@ DRAW:
     BSR     DRAW_LIVES              ; Draw lives (hearts)
     BSR     DRAW_PARTICLES          ; Draw explosion particles
     BSR     DRAW_HEART_PICKUP       ; Draw collectible heart
+    BSR     DRAW_MYSTERY_BOX        ; Draw mystery box pickup
+    BSR     DRW_AB_MSG              ; Draw ability pickup message
     
     ; Check for game over message
     MOVE.L  GAME_OVER,  D1
@@ -1072,33 +1268,84 @@ DRAW_SHIP:
 
 *-----------------------------------------------------------
 * Subroutine    : Draw Bullet
-* Description   : Draw bullet (yellow rectangle)
+* Description   : Draw all active bullets
 *-----------------------------------------------------------
 DRAW_BULLET:
-    ; Check if bullet is active
-    MOVE.L  BULLET_ACT, D1
+    LEA     BULLET_ACT, A2          ; Active flags array
+    LEA     BULLET_X,   A3          ; X positions array
+    LEA     BULLET_Y,   A4          ; Y positions array
+    MOVE.L  #0,         D7          ; Bullet counter
+    
+DRW_BLT_LP:
+    CMP.L   #MAX_BULLETS,D7
+    BGE     BULLET_DRAW_DONE
+    
+    ; Check if this bullet is active
+    MOVE.L  (A2),       D1
     CMP.L   #0,         D1
-    BEQ     BULLET_DRAW_DONE        ; Not active, skip
+    BEQ     NEXT_DRW_BLT            ; Not active, skip
     
+    ; Check if wave attack is active for color
+    MOVE.L  WAVE_ACTIVE,D1
+    CMP.L   #1,         D1
+    BNE     NORM_BLT_CLR
+    
+    ; Wave attack - draw cyan wave bullet
+    MOVE.L  #CYAN,      D1
+    MOVE.B  #80,        D0
+    TRAP    #15
+    
+    ; Draw wave bullet (wider)
+    MOVE.L  (A3),       D1          ; X from array
+    MOVE.L  (A4),       D2          ; Y from array
+    MOVE.L  (A3),       D3
+    ADD.L   #WAVE_WIDTH,D3
+    MOVE.L  (A4),       D4
+    ADD.L   #WAVE_HEIGHT,D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Add glow effect
+    MOVE.L  #$00FFFF88, D1
+    MOVE.B  #80,        D0
+    TRAP    #15
+    MOVE.L  (A3),       D1
+    SUB.L   #2,         D1
+    MOVE.L  (A4),       D2
+    MOVE.L  (A3),       D3
+    ADD.L   #WAVE_WIDTH,D3
+    ADD.L   #2,         D3
+    MOVE.L  (A4),       D4
+    ADD.L   #3,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    BRA     NEXT_DRW_BLT
+    
+NORM_BLT_CLR:
     ; Set Pixel Colors (Yellow for bullet)
-    MOVE.L  #YELLOW,    D1          ; Set Background color
-    MOVE.B  #80,        D0          ; Task for Background Color
-    TRAP    #15                     ; Trap (Perform action)
+    MOVE.L  #YELLOW,    D1
+    MOVE.B  #80,        D0
+    TRAP    #15
 
-    ; Set X, Y, Width and Height
-    MOVE.L  BULLET_X,   D1          ; X
-    MOVE.L  BULLET_Y,   D2          ; Y
-    MOVE.L  BULLET_X,   D3
-    ADD.L   #BULLET_W,  D3          ; Width
-    MOVE.L  BULLET_Y,   D4 
-    ADD.L   #BULLET_H,  D4          ; Height
+    ; Draw normal bullet
+    MOVE.L  (A3),       D1          ; X from array
+    MOVE.L  (A4),       D2          ; Y from array
+    MOVE.L  (A3),       D3
+    ADD.L   #BULLET_W,  D3
+    MOVE.L  (A4),       D4
+    ADD.L   #BULLET_H,  D4
+    MOVE.B  #87,        D0
+    TRAP    #15
     
-    ; Draw Bullet
-    MOVE.B  #87,        D0          ; Draw filled rectangle
-    TRAP    #15                     ; Trap (Perform action)
+NEXT_DRW_BLT:
+    ADDA.L  #4,         A2          ; Next active flag
+    ADDA.L  #4,         A3          ; Next X
+    ADDA.L  #4,         A4          ; Next Y
+    ADD.L   #1,         D7
+    BRA     DRW_BLT_LP
     
 BULLET_DRAW_DONE:
-    RTS                             ; Return to subroutine
+    RTS
 
 *-----------------------------------------------------------
 * Subroutine    : Draw Aliens
@@ -1325,9 +1572,9 @@ INIT_BRIGHT_LOOP:
     MOVE.L  D4,         (A0)+
     ADD.L   #1,         D4
     CMP.L   #3,         D4
-    BLT     .SKIP_RESET
+    BLT     SKIP_RST_BR
     MOVE.L  #0,         D4
-.SKIP_RESET:
+SKIP_RST_BR:
     ADD.L   #1,         D7
     BRA     INIT_BRIGHT_LOOP
     
@@ -1356,22 +1603,22 @@ DRAW_STAR_LOOP:
     
     ; Set star color based on brightness
     CMP.L   #0,         D6
-    BEQ     .DIM_STAR
+    BEQ     DIM_STAR
     CMP.L   #1,         D6
-    BEQ     .MED_STAR
+    BEQ     MED_STAR
     
     ; Bright star - white
     MOVE.L  #$00FFFFFF, D1
-    BRA     .SET_COLOR
+    BRA     SET_ST_CLR
     
-.DIM_STAR:
+DIM_STAR:
     MOVE.L  #$00666666, D1
-    BRA     .SET_COLOR
+    BRA     SET_ST_CLR
     
-.MED_STAR:
+MED_STAR:
     MOVE.L  #$00AAAAAA, D1
     
-.SET_COLOR:
+SET_ST_CLR:
     MOVE.B  #80,        D0
     TRAP    #15
     
@@ -1480,39 +1727,74 @@ PLAY_TIMEFREEZE:
     MOVEM.L (SP)+,D0-D7/A0-A6       ; Restore registers
     RTS
 
+WAVESHOOT_LOAD:
+    LEA     WAVESHOOT_WAV,A1        ; Load Wav File into A1
+    MOVE    #WAVESHOOT_INDEX,D1     ; Assign it INDEX
+    MOVE    #74,        D0          ; Load into memory (trap 74)
+    TRAP    #15                     ; Trap (Perform action)
+    RTS                             ; Return to subroutine
+
+PLAY_WAVESHOOT:
+    MOVEM.L D0-D7/A0-A6,-(SP)       ; Save registers
+    MOVE    #WAVESHOOT_INDEX,D1     ; Load Sound INDEX
+    MOVE    #75,        D0          ; Play Sound (trap 75)
+    TRAP    #15                     ; Trap (Perform action)
+    MOVEM.L (SP)+,D0-D7/A0-A6       ; Restore registers
+    RTS
+
 *-----------------------------------------------------------
 * Subroutine    : Check Bullet Collisions
-* Description   : Check if bullet hits any alien
+* Description   : Check if any bullet hits any alien
 *-----------------------------------------------------------
 CHECK_BULLET_COLLISIONS:
-    ; Check if bullet is active
-    MOVE.L  BULLET_ACT, D1
-    CMP.L   #0,         D1
-    BEQ     BULLET_COLL_DONE        ; Not active, skip
+    ; Outer loop through all bullets
+    LEA     BULLET_ACT, A5          ; Active flags array
+    LEA     BULLET_X,   A3          ; X positions array
+    LEA     BULLET_Y,   A4          ; Y positions array
+    MOVE.L  #0,         CURR_BULLET ; Bullet counter
     
-    ; Get bullet position
-    MOVE.L  BULLET_X,   D1          ; Bullet X
-    MOVE.L  BULLET_Y,   D2          ; Bullet Y
-    
-    LEA     ALIENS,     A0          ; Load aliens array
-    MOVE.L  #0,         D7          ; Counter
-    
-CHECK_ALIEN_COLL_LOOP:
-    CMP.L   #(ALIEN_ROWS*ALIEN_COLS), D7
+CHK_NXT_BLT:
+    MOVE.L  CURR_BULLET,D0
+    CMP.L   #MAX_BULLETS,D0
     BGE     BULLET_COLL_DONE
     
+    ; Calculate offset for this bullet
+    MOVE.L  D0,         D6
+    MULU    #4,         D6          ; Byte offset
+    
+    ; Check if this bullet is active
+    LEA     BULLET_ACT, A5
+    ADDA.L  D6,         A5
+    MOVE.L  (A5),       D1
+    CMP.L   #0,         D1
+    BEQ     NXT_BLT_CL              ; Not active, skip to next bullet
+    
+    ; Get bullet position for this bullet
+    LEA     BULLET_X,   A3
+    ADDA.L  D6,         A3
+    LEA     BULLET_Y,   A4
+    ADDA.L  D6,         A4
+    
+    ; Inner loop: check all aliens
+    LEA     ALIENS,     A0
+    MOVE.L  #0,         D7          ; Alien counter
+    
+CHK_ALIEN_LP:
+    CMP.L   #(ALIEN_ROWS*ALIEN_COLS),D7
+    BGE     NXT_BLT_CL              ; Done with aliens for this bullet
+    
     ; Check if alien is alive
-    MOVE.L  A0,         A1          ; Save A0
+    MOVE.L  A0,         A1
     MOVE.L  D7,         D6
     MULU    #4,         D6
     ADDA.L  D6,         A1
     MOVE.L  (A1),       D3
     CMP.L   #0,         D3
-    BEQ     NEXT_ALIEN_COLL         ; Dead, skip
+    BEQ     NXT_ALN_CL              ; Dead, skip
     
     ; Calculate alien position
     MOVE.L  D7,         D3
-    DIVU    #ALIEN_COLS,D3          ; D3.W = row
+    DIVU    #ALIEN_COLS,D3
     MOVE.W  D3,         D4          ; D4 = row
     SWAP    D3
     MOVE.W  D3,         D5          ; D5 = col
@@ -1529,44 +1811,73 @@ CHECK_ALIEN_COLL_LOOP:
     MULU    #(ALIEN_H+10),D6
     ADD.L   ALIENS_Y,   D6          ; Alien Y in D6
     
-    ; Simple AABB collision check
-    ; Bullet center vs alien bounds
-    MOVE.L  BULLET_X,   D1
-    ADD.L   #BULLET_W/2,D1          ; Bullet center X
+    ; AABB collision check using this bullet's position
+    MOVE.L  (A3),       D1          ; Bullet left X
     
-    ; Check X bounds
-    CMP.L   D3,         D1          ; Bullet X < Alien X?
-    BLT     NEXT_ALIEN_COLL
-    MOVE.L  D3,         D4
-    ADD.L   #ALIEN_W,   D4
-    CMP.L   D4,         D1          ; Bullet X > Alien X + W?
-    BGT     NEXT_ALIEN_COLL
+    ; Check if wave attack active for wider collision
+    MOVE.L  WAVE_ACTIVE,D5
+    CMP.L   #1,         D5
+    BNE     NORM_CL_WD
+    
+    ; Wave attack
+    MOVE.L  (A3),       D4
+    ADD.L   #WAVE_WIDTH,D4
+    BRA     CHK_X_BND
+    
+NORM_CL_WD:
+    MOVE.L  (A3),       D4
+    ADD.L   #BULLET_W,  D4
+
+CHK_X_BND:
+    ; Check X overlap
+    MOVE.L  D3,         D5          ; Alien left X
+    ADD.L   #ALIEN_W,   D5          ; Alien right X
+    
+    CMP.L   D3,         D4          ; Bullet right < Alien left?
+    BLT     NXT_ALN_CL
+    CMP.L   D5,         D1          ; Bullet left > Alien right?
+    BGT     NXT_ALN_CL
     
     ; Check Y bounds
-    MOVE.L  BULLET_Y,   D2
-    CMP.L   D6,         D2          ; Bullet Y < Alien Y?
-    BLT     NEXT_ALIEN_COLL
+    MOVE.L  (A4),       D2          ; Bullet Y
+    CMP.L   D6,         D2
+    BLT     NXT_ALN_CL
     MOVE.L  D6,         D4
     ADD.L   #ALIEN_H,   D4
-    CMP.L   D4,         D2          ; Bullet Y > Alien Y + H?
-    BGT     NEXT_ALIEN_COLL
+    CMP.L   D4,         D2
+    BGT     NXT_ALN_CL
     
-    ; HIT! Kill alien and deactivate bullet
+    ; HIT! Kill alien
     BSR     PLAY_HIT
     MOVE.L  #0,         (A1)        ; Kill alien
-    MOVE.L  #0,         BULLET_ACT  ; Deactivate bullet
-    MOVE.L  #BULLET_OFF,BULLET_Y
+    
+    ; 3% chance of weapon malfunction on kill
+    BSR     CHECK_MALFUNCTION
     
     ; Add points
     MOVE.L  PLAYER_SCORE,D1
     ADD.L   #POINTS,    D1
     MOVE.L  D1,         PLAYER_SCORE
     
-    BRA     BULLET_COLL_DONE
+    ; Check if wave attack - bullet passes through
+    MOVE.L  WAVE_ACTIVE,D5
+    CMP.L   #1,         D5
+    BEQ     NXT_ALN_CL              ; Wave continues to next alien
     
-NEXT_ALIEN_COLL:
+    ; Normal bullet - deactivate and move to next bullet
+    MOVE.L  #0,         (A5)        ; Deactivate this bullet
+    MOVE.L  #BULLET_OFF,(A4)
+    BRA     NXT_BLT_CL
+    
+NXT_ALN_CL:
     ADD.L   #1,         D7
-    BRA     CHECK_ALIEN_COLL_LOOP
+    BRA     CHK_ALIEN_LP
+    
+NXT_BLT_CL:
+    MOVE.L  CURR_BULLET,D0
+    ADD.L   #1,         D0
+    MOVE.L  D0,         CURR_BULLET
+    BRA     CHK_NXT_BLT
     
 BULLET_COLL_DONE:
     RTS
@@ -1645,7 +1956,37 @@ SET_NEW_SPEED:
     ADD.L   #50,        D1          ; 50 bonus points per wave
     MOVE.L  D1,         PLAYER_SCORE
     
+    ; Try to spawn mystery box (random chance)
+    BSR     SPAWN_MYSTERY_BOX
+    
 WAVE_NOT_DONE:
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Spawn Mystery Box
+* Description   : Randomly spawn a mystery box pickup
+*-----------------------------------------------------------
+SPAWN_MYSTERY_BOX:
+    ; Check if mystery box already active
+    MOVE.L  MYSTERY_ACTIVE,D1
+    CMP.L   #1,         D1
+    BEQ     .NO_SPAWN               ; Already active
+    
+    ; Random chance to spawn
+    BSR     GET_RANDOM
+    AND.L   #$FF,       D1          ; 0-255
+    CMP.L   #MYSTERY_SPAWN_CHANCE,D1
+    BGT     .NO_SPAWN               ; Didn't pass chance check
+    
+    ; Spawn mystery box at random X position
+    BSR     GET_RANDOM
+    AND.L   #$1FF,      D1          ; 0-511
+    ADD.L   #30,        D1          ; 30-541
+    MOVE.L  D1,         MYSTERY_X
+    MOVE.L  #40,        MYSTERY_Y   ; Start near top
+    MOVE.L  #1,         MYSTERY_ACTIVE
+    
+.NO_SPAWN:
     RTS
 
 *-----------------------------------------------------------
@@ -1758,16 +2099,16 @@ FIRE_ALIEN_BULLET:
     LEA     ALN_BLT_X,  A1
     LEA     ALN_BLT_Y,  A2
     MOVE.L  #MAX_ALN_BLT-1,D7
-FIND_SLOT:
+FIND_AB_SL:
     MOVE.L  (A0)+,      D3
     CMP.L   #0,         D3
-    BEQ     FOUND_SLOT
+    BEQ     FOUND_AB_SL
     ADDA.L  #4,         A1
     ADDA.L  #4,         A2
-    DBRA    D7,         FIND_SLOT
+    DBRA    D7,         FIND_AB_SL
     RTS                             ; No slots available
     
-FOUND_SLOT:
+FOUND_AB_SL:
     MOVE.L  #1,         -4(A0)      ; Set active
     MOVE.L  D1,         (A1)        ; Set X
     MOVE.L  D2,         (A2)        ; Set Y
@@ -2274,6 +2615,213 @@ HEART_UPDATE_DONE:
     RTS
 
 *-----------------------------------------------------------
+* Subroutine    : Update Mystery Box
+* Description   : Move mystery box down and check for player collision
+*-----------------------------------------------------------
+UPDATE_MYSTERY_BOX:
+    ; Check if mystery box is active
+    MOVE.L  MYSTERY_ACTIVE,D0
+    CMP.L   #0,         D0
+    BEQ     MYSTERY_UPDATE_DONE
+    
+    ; Move mystery box down
+    MOVE.L  MYSTERY_Y,  D1
+    ADD.L   #MYSTERY_SPEED,D1
+    MOVE.L  D1,         MYSTERY_Y
+    
+    ; Check if mystery box went off screen
+    CLR.L   D2
+    MOVE.W  SCREEN_H,   D2
+    CMP.L   D2,         D1
+    BGE     MYSTERY_OFF_SCREEN
+    
+    ; Check collision with player ship
+    MOVE.L  MYSTERY_X,  D1          ; Mystery box X
+    MOVE.L  MYSTERY_Y,  D2          ; Mystery box Y
+    
+    ; Check X overlap
+    MOVE.L  SHIP_X,     D3
+    SUB.L   #MYSTERY_SIZE,D3        ; Ship left - box size
+    CMP.L   D3,         D1
+    BLT     MYSTERY_UPDATE_DONE
+    
+    MOVE.L  SHIP_X,     D3
+    ADD.L   #SHIP_W,    D3          ; Ship right
+    CMP.L   D3,         D1
+    BGT     MYSTERY_UPDATE_DONE
+    
+    ; Check Y overlap
+    MOVE.L  SHIP_Y,     D3
+    SUB.L   #MYSTERY_SIZE,D3        ; Ship top - box size
+    CMP.L   D3,         D2
+    BLT     MYSTERY_UPDATE_DONE
+    
+    MOVE.L  SHIP_Y,     D3
+    ADD.L   #SHIP_H,    D3          ; Ship bottom
+    CMP.L   D3,         D2
+    BGT     MYSTERY_UPDATE_DONE
+    
+    ; Collision! Pick up the mystery box
+    BSR     PLAY_HIT                ; Play sound
+    MOVE.L  #0,         MYSTERY_ACTIVE ; Deactivate mystery box
+    
+    ; Randomly choose ability (1 = wave attack, 2 = rapid fire)
+    BSR     GET_RANDOM
+    AND.L   #1,         D1          ; 0 or 1
+    ADD.L   #1,         D1          ; 1 or 2
+    MOVE.L  D1,         CURRENT_ABILITY
+    
+    CMP.L   #1,         D1
+    BEQ     ACTIVATE_WAVE_ATTACK
+    BRA     ACTIVATE_RAPID_FIRE
+    
+ACTIVATE_WAVE_ATTACK:
+    ; Set wave attack active
+    MOVE.L  #1,         WAVE_ACTIVE
+    MOVE.L  #0,         RAPID_ACTIVE ; Disable rapid fire if active
+    
+    ; Set end time = current time + WAVE_DURATION
+    MOVE.B  #8,         D0
+    TRAP    #15
+    ADD.L   #WAVE_DURATION,D1
+    MOVE.L  D1,         WAVE_END_TIME
+    
+    ; Set message display timer (show for 3 seconds)
+    MOVE.B  #8,         D0
+    TRAP    #15
+    ADD.L   #300,       D1
+    MOVE.L  D1,         ABILITY_MSG_TIME
+    
+    BRA     MYSTERY_UPDATE_DONE
+    
+ACTIVATE_RAPID_FIRE:
+    ; Set rapid fire active
+    MOVE.L  #1,         RAPID_ACTIVE
+    MOVE.L  #0,         WAVE_ACTIVE ; Disable wave attack if active
+    MOVE.L  #0,         RAPID_SHOOT_CNT ; Reset shoot counter
+    
+    ; Set end time = current time + RAPID_DURATION
+    MOVE.B  #8,         D0
+    TRAP    #15
+    ADD.L   #RAPID_DURATION,D1
+    MOVE.L  D1,         RAPID_END_TIME
+    
+    ; Set message display timer (show for 3 seconds)
+    MOVE.B  #8,         D0
+    TRAP    #15
+    ADD.L   #300,       D1
+    MOVE.L  D1,         ABILITY_MSG_TIME
+    
+    BRA     MYSTERY_UPDATE_DONE
+    
+MYSTERY_OFF_SCREEN:
+    MOVE.L  #0,         MYSTERY_ACTIVE ; Deactivate mystery box
+    
+MYSTERY_UPDATE_DONE:
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Update Abilities
+* Description   : Check if abilities have expired
+*-----------------------------------------------------------
+UPDATE_ABILITIES:
+    ; Check wave attack timer
+    MOVE.L  WAVE_ACTIVE,D1
+    CMP.L   #0,         D1
+    BEQ     CHK_RAPID
+    
+    ; Wave attack is active, check if expired
+    MOVE.B  #8,         D0
+    TRAP    #15
+    MOVE.L  D1,         D2          ; Current time
+    MOVE.L  WAVE_END_TIME,D3
+    CMP.L   D3,         D2
+    BLT     CHK_RAPID               ; Not expired yet
+    
+    ; Expired - deactivate wave attack
+    MOVE.L  #0,         WAVE_ACTIVE
+    
+CHK_RAPID:
+    ; Check rapid fire timer
+    MOVE.L  RAPID_ACTIVE,D1
+    CMP.L   #0,         D1
+    BEQ     CHK_MALFNC
+    
+    ; Rapid fire is active, check if expired
+    MOVE.B  #8,         D0
+    TRAP    #15
+    MOVE.L  D1,         D2          ; Current time
+    MOVE.L  RAPID_END_TIME,D3
+    CMP.L   D3,         D2
+    BLT     CHK_MALFNC              ; Not expired yet
+    
+    ; Expired - deactivate rapid fire
+    MOVE.L  #0,         RAPID_ACTIVE
+    
+CHK_MALFNC:
+    ; Check weapon malfunction timer
+    MOVE.L  MALFUNC_ACTIVE,D1
+    CMP.L   #0,         D1
+    BEQ     ABIL_DONE
+    
+    ; Malfunction is active, check if expired
+    MOVE.B  #8,         D0
+    TRAP    #15
+    MOVE.L  D1,         D2          ; Current time
+    MOVE.L  MALFUNC_END_TIME,D3
+    CMP.L   D3,         D2
+    BLT     ABIL_DONE               ; Not expired yet
+    
+    ; Expired - deactivate malfunction
+    MOVE.L  #0,         MALFUNC_ACTIVE
+    
+ABIL_DONE:
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Check Malfunction
+* Description   : 3% chance to trigger weapon malfunction
+*-----------------------------------------------------------
+CHECK_MALFUNCTION:
+    ; Don't trigger if already active
+    MOVE.L  MALFUNC_ACTIVE,D1
+    CMP.L   #1,         D1
+    BEQ     NO_MALFUNC
+    
+    ; Generate random number 0-99
+    MOVE.L  RANDOM_SEED,D1
+    MULU    #31,        D1
+    ADD.L   #7,         D1
+    MOVE.L  D1,         RANDOM_SEED
+    AND.L   #$7FFFFFFF, D1
+    DIVU    #100,       D1
+    SWAP    D1                      ; Remainder in low word (0-99)
+    AND.L   #$FFFF,     D1
+    
+    ; Check if < 3 (3% chance)
+    CMP.L   #MALFUNC_CHANCE,D1
+    BGE     NO_MALFUNC
+    
+    ; Trigger malfunction!
+    MOVE.L  #1,         MALFUNC_ACTIVE
+    
+    ; Set end time
+    MOVE.B  #8,         D0
+    TRAP    #15
+    ADD.L   #MALFUNC_DURATION,D1
+    MOVE.L  D1,         MALFUNC_END_TIME
+    
+    ; Set ability message to show malfunction
+    MOVE.L  #3,         CURRENT_ABILITY ; 3 = malfunction
+    MOVE.B  #8,         D0
+    TRAP    #15
+    ADD.L   #300,       D1          ; Show message for 3 seconds
+    MOVE.L  D1,         ABILITY_MSG_TIME
+    
+NO_MALFUNC:
+    RTS
+
+*-----------------------------------------------------------
 * Subroutine    : Draw Heart Pickup
 * Description   : Draw the collectible heart (pink, pulsing)
 *-----------------------------------------------------------
@@ -2360,6 +2908,170 @@ DRAW_HEART_PICKUP_DONE:
     RTS
 
 *-----------------------------------------------------------
+* Subroutine    : Draw Mystery Box
+* Description   : Draw the mystery box pickup (purple/gold box with ?)
+*-----------------------------------------------------------
+DRAW_MYSTERY_BOX:
+    ; Check if mystery box is active
+    MOVE.L  MYSTERY_ACTIVE,D0
+    CMP.L   #0,         D0
+    BEQ     DRAW_MYSTERY_DONE
+    
+    MOVEM.L D0-D7,-(SP)             ; Save registers
+    
+    MOVE.L  MYSTERY_X,  D6          ; Box X
+    MOVE.L  MYSTERY_Y,  D5          ; Box Y
+    
+    ; Draw outer box (gold/yellow border)
+    MOVE.L  #$0000D7FF, D1          ; Gold color
+    MOVE.B  #80,        D0
+    TRAP    #15
+    
+    MOVE.L  D6,         D1
+    MOVE.L  D5,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #MYSTERY_SIZE,D3
+    MOVE.L  D2,         D4
+    ADD.L   #MYSTERY_SIZE,D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Draw inner box (purple)
+    MOVE.L  #$00FF00AA, D1          ; Purple color
+    MOVE.B  #80,        D0
+    TRAP    #15
+    
+    MOVE.L  D6,         D1
+    ADD.L   #2,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #2,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #16,        D3
+    MOVE.L  D2,         D4
+    ADD.L   #16,        D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Draw question mark (white) - top dot
+    MOVE.L  #WHITE,     D1
+    MOVE.B  #80,        D0
+    TRAP    #15
+    
+    MOVE.L  D6,         D1
+    ADD.L   #7,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #4,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #6,         D3
+    MOVE.L  D2,         D4
+    ADD.L   #3,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Question mark curve
+    MOVE.L  D6,         D1
+    ADD.L   #10,        D1
+    MOVE.L  D5,         D2
+    ADD.L   #6,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #3,         D3
+    MOVE.L  D2,         D4
+    ADD.L   #4,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Question mark stem
+    MOVE.L  D6,         D1
+    ADD.L   #8,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #9,         D2
+    MOVE.L  D1,         D3
+    ADD.L   #4,         D3
+    MOVE.L  D2,         D4
+    ADD.L   #4,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    ; Question mark dot
+    MOVE.L  D6,         D1
+    ADD.L   #8,         D1
+    MOVE.L  D5,         D2
+    ADD.L   #14,        D2
+    MOVE.L  D1,         D3
+    ADD.L   #4,         D3
+    MOVE.L  D2,         D4
+    ADD.L   #3,         D4
+    MOVE.B  #87,        D0
+    TRAP    #15
+    
+    MOVEM.L (SP)+,D0-D7             ; Restore registers
+    
+DRAW_MYSTERY_DONE:
+    RTS
+
+*-----------------------------------------------------------
+* Subroutine    : Draw Ability Message
+* Description   : Show which ability was picked up
+*-----------------------------------------------------------
+DRW_AB_MSG:
+    ; Check if message should still be shown
+    MOVE.B  #8,         D0
+    TRAP    #15
+    MOVE.L  D1,         D2          ; Current time
+    MOVE.L  ABILITY_MSG_TIME,D3
+    CMP.L   #0,         D3
+    BEQ     DRW_AB_DN               ; No message to show
+    CMP.L   D3,         D2
+    BGT     CLR_AB_MSG              ; Time expired
+    
+    ; Draw the message based on current ability
+    MOVE.L  CURRENT_ABILITY,D1
+    CMP.L   #1,         D1
+    BEQ     DRW_WV_MSG
+    CMP.L   #2,         D1
+    BEQ     DRW_RP_MSG
+    CMP.L   #3,         D1
+    BEQ     DRW_MF_MSG
+    BRA     DRW_AB_DN
+    
+DRW_WV_MSG:
+    ; Draw wave attack message (cyan text)
+    MOVE.B  #TC_CURSR_P,D0
+    MOVE.W  #$0803,     D1          ; Col 8, Row 3
+    TRAP    #15
+    LEA     WAVE_ABILITY_MSG,A1
+    MOVE    #14,        D0
+    TRAP    #15
+    BRA     DRW_AB_DN
+    
+DRW_RP_MSG:
+    ; Draw rapid fire message
+    MOVE.B  #TC_CURSR_P,D0
+    MOVE.W  #$0603,     D1          ; Col 6, Row 3
+    TRAP    #15
+    LEA     RAPID_ABILITY_MSG,A1
+    MOVE    #14,        D0
+    TRAP    #15
+    BRA     DRW_AB_DN
+    
+DRW_MF_MSG:
+    ; Draw malfunction message (red warning)
+    MOVE.B  #TC_CURSR_P,D0
+    MOVE.W  #$0603,     D1          ; Col 6, Row 3
+    TRAP    #15
+    LEA     MALFUNC_MSG,A1
+    MOVE    #14,        D0
+    TRAP    #15
+    BRA     DRW_AB_DN
+    
+CLR_AB_MSG:
+    MOVE.L  #0,         ABILITY_MSG_TIME
+    MOVE.L  #0,         CURRENT_ABILITY
+    
+DRW_AB_DN:
+    RTS
+
+*-----------------------------------------------------------
 * Subroutine    : Update Slow Motion
 * Description   : Check if slow motion should end
 *-----------------------------------------------------------
@@ -2431,6 +3143,9 @@ GAMEOVER_MSG    DC.B    '*** GAME OVER ***', 0
 FINAL_SCORE_MSG DC.B    'FINAL SCORE: ', 0
 RESTART_MSG     DC.B    'Press ESC to play again', 0
 EXIT_MSG        DC.B    'Exiting....', 0
+WAVE_ABILITY_MSG DC.B   '*** WAVE ATTACK ACTIVATED! ***', 0
+RAPID_ABILITY_MSG DC.B  '*** RAPID FIRE + SPEED BOOST! ***', 0
+MALFUNC_MSG     DC.B    '!!! WEAPON MALFUNCTION !!!', 0
 
 *-----------------------------------------------------------
 * Section       : Graphic Colors
@@ -2457,9 +3172,11 @@ SHIP_X          DS.L    01  ; Ship X Position
 SHIP_Y          DS.L    01  ; Ship Y Position
 PLAYER_SCORE    DS.L    01  ; Player Score
 
-BULLET_X        DS.L    01  ; Bullet X Position
-BULLET_Y        DS.L    01  ; Bullet Y Position
-BULLET_ACT      DS.L    01  ; Bullet Active (1=yes, 0=no)
+BULLET_X        DS.L    MAX_BULLETS  ; Bullet X Positions (array)
+BULLET_Y        DS.L    MAX_BULLETS  ; Bullet Y Positions (array)
+BULLET_ACT      DS.L    MAX_BULLETS  ; Bullet Active flags (array)
+SHOOT_DELAY     DS.L    01           ; Delay between shots
+CURR_BULLET     DS.L    01           ; Current bullet index (for collision)
 
 *-----------------------------------------------------------
 * Section       : Alien Data
@@ -2526,6 +3243,7 @@ HIT_WAV         DC.B    'hit.wav',0         ; Hit Sound
 OPPS_WAV        DC.B    'opps.wav',0        ; Game Over Sound
 MUSIC_WAV       DC.B    'music.wav',0       ; Background Music
 TIMEFREEZE_WAV  DC.B    'timefreeze.wav',0  ; Time Freeze Sound
+WAVESHOOT_WAV   DC.B    'waveshoot.wav',0   ; Wave Shoot Sound
 
 *-----------------------------------------------------------
 * Section       : Time Stop Message
@@ -2551,6 +3269,33 @@ PART_ACTIVE     DS.L    01             ; Are particles active?
 HEART_X         DS.L    01             ; Heart X position
 HEART_Y         DS.L    01             ; Heart Y position
 HEART_ACTIVE    DS.L    01             ; Is heart pickup active?
+
+*-----------------------------------------------------------
+* Section       : Mystery Box
+* Description   : Mystery box pickup for random abilities
+*-----------------------------------------------------------
+MYSTERY_X       DS.L    01             ; Mystery box X position
+MYSTERY_Y       DS.L    01             ; Mystery box Y position
+MYSTERY_ACTIVE  DS.L    01             ; Is mystery box active?
+
+*-----------------------------------------------------------
+* Section       : Power-up Abilities
+* Description   : Wave Attack and Rapid Fire ability states
+*-----------------------------------------------------------
+WAVE_ACTIVE     DS.L    01             ; Is wave attack active? (1=yes, 0=no)
+WAVE_END_TIME   DS.L    01             ; When wave attack ends
+RAPID_ACTIVE    DS.L    01             ; Is rapid fire active? (1=yes, 0=no)
+RAPID_END_TIME  DS.L    01             ; When rapid fire ends
+RAPID_SHOOT_CNT DS.L    01             ; Frame counter for rapid fire cooldown
+ABILITY_MSG_TIME DS.L   01             ; When to stop showing ability message
+CURRENT_ABILITY DS.L    01             ; Which ability was picked (1=wave, 2=rapid)
+
+*-----------------------------------------------------------
+* Section       : Weapon Malfunction (Negative Event)
+* Description   : Slow bullets, random spread when triggered
+*-----------------------------------------------------------
+MALFUNC_ACTIVE  DS.L    01             ; Is malfunction active? (1=yes, 0=no)
+MALFUNC_END_TIME DS.L   01             ; When malfunction ends
 
     END    START        ; last line of sourcece
 
