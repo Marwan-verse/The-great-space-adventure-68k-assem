@@ -74,7 +74,7 @@ MAX_LIVES     EQU       5           ; Maximum lives player can have
 ; Mystery Box configuration
 MYSTERY_SIZE    EQU     20          ; Mystery box size
 MYSTERY_SPEED   EQU     1          ; Mystery box fall speed
-MYSTERY_SPAWN_CHANCE EQU 70         ; Chance to spawn (lower = more rare)
+MYSTERY_SPAWN_CHANCE EQU 95         ; Chance to spawn (lower = more rare)
 
 ; Wave Attack ability configuration
 WAVE_DURATION   EQU     1000        ; Wave attack lasts 10 seconds (in hundredths)
