@@ -74,7 +74,7 @@ MAX_LIVES     EQU       5           ; Maximum lives player can have
 ; Mystery Box configuration
 MYSTERY_SIZE    EQU     20          ; Mystery box size
 MYSTERY_SPEED   EQU     1          ; Mystery box fall speed
-MYSTERY_SPAWN_CHANCE EQU 95         ; Chance to spawn (lower = more rare)
+MYSTERY_SPAWN_CHANCE EQU 900         ; Chance to spawn (lower = more rare)
 
 ; Wave Attack ability configuration
 WAVE_DURATION   EQU     1000        ; Wave attack lasts 10 seconds (in hundredths)
@@ -82,9 +82,9 @@ WAVE_WIDTH      EQU     50          ; Wave attack bullet width (adjustable)
 WAVE_HEIGHT     EQU     3          ; Wave attack bullet height (adjustable)
 
 ; Rapid Fire + Speed ability configuration
-RAPID_DURATION  EQU     600         ; Rapid fire lasts 6 seconds (in hundredths)
+RAPID_DURATION  EQU     800         ; Rapid fire lasts 8 seconds (in hundredths)
 RAPID_SHIP_SPEED EQU    4           ; Ship speed during rapid fire (3x normal)
-RAPID_COOLDOWN  EQU     15           ; Frames between rapid fire shots
+RAPID_COOLDOWN  EQU     13           ; Frames between rapid fire shots
 
 ; Weapon Malfunction (negative event) configuration
 MALFUNC_CHANCE  EQU     1           ; 1% chance on alien kill
